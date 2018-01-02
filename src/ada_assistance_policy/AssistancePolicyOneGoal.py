@@ -8,12 +8,12 @@ import HuberAssistancePolicy as TargetPolicy
 TargetPolicyClass = TargetPolicy.HuberAssistancePolicy
 
 class AssistancePolicyOneGoal:
-  def __init__(self, goal):
+  def __init__(self, goal, cost_multiplier=1):
     self.goal = goal
 
     self.target_assist_policies = []
     for pose in self.goal.target_poses:
-      self.target_assist_policies.append(TargetPolicyClass(pose))
+      self.target_assist_policies.append(TargetPolicyClass(pose, cost_multiplier))
     self.min_val_ind = 0
 
   def update(self, robot_state, user_action):

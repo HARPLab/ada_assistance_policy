@@ -47,7 +47,7 @@ num_control_modes = 2
 
   
 class AdaHandler:
-  def __init__(self, env, robot, goals, goal_objects, input_interface_name, num_input_dofs, use_finger_mode=True, goal_object_poses=None):
+  def __init__(self, env, robot, goals, goal_objects, input_interface_name, num_input_dofs, use_finger_mode=True, goal_object_poses=None, cost_multiplier=1):
 #      self.params = {'rand_start_radius':0.04,
 #             'noise_pwr': 0.3,  # magnitude of noise
 #             'vel_scale': 4.,   # scaling when sending velocity commands to robot
@@ -68,7 +68,7 @@ class AdaHandler:
       self.ada_teleop = AdaTeleopHandler(env, robot, input_interface_name, num_input_dofs, use_finger_mode)#, is_done_func=Teleop_Done)
       self.robot_state = self.ada_teleop.robot_state
 
-      self.robot_policy = AdaAssistancePolicy(self.goals)
+      self.robot_policy = AdaAssistancePolicy(self.goals, cost_multiplier)
 
       self.user_input_mapper = self.ada_teleop.user_input_mapper
 
@@ -147,18 +147,18 @@ class AdaHandler:
         if not direct_teleop_only and user_input_all.button_changes[1] == 1:
           use_assistance = not use_assistance
 
-        self.robot_policy.update(robot_state, direct_teleop_action)
+        self.robot_policy.update(robot_state, direct_teleop_action) #execute the user's action & update the goal distribution
         if use_assistance and not direct_teleop_only:
           #action = self.user_input_mapper.input_to_action(user_input_all, robot_state)
           if blend_only:
             action = self.robot_policy.get_blend_action()
           else:
-            action = self.robot_policy.get_action(fix_magnitude_user_command=fix_magnitude_user_command)
+            action = self.robot_policy.get_action(fix_magnitude_user_command=fix_magnitude_user_command) # get the robot action
         else:
           #if left trigger is being hit, direct teleop
           action = direct_teleop_action
 
-        self.ada_teleop.ExecuteAction(action)
+        self.ada_teleop.ExecuteAction(action) # execute robot action
 
         ### visualization ###
         vis.draw_probability_text(self.goal_object_poses, self.robot_policy.goal_predictor.get_distribution())

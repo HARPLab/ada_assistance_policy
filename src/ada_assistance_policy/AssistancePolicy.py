@@ -5,12 +5,12 @@ import AssistancePolicyOneGoal as GoalPolicy
 
 class AssistancePolicy:
 
-  def __init__(self, goals):
+  def __init__(self, goals, cost_multiplier=1):
     self.goals = goals
 
     self.goal_assist_policies = []
     for goal in goals:
-      self.goal_assist_policies.append(GoalPolicy.AssistancePolicyOneGoal(goal))
+      self.goal_assist_policies.append(GoalPolicy.AssistancePolicyOneGoal(goal, cost_multiplier))
 
     #self.user_input_mapper = UserInputMapper()
 
@@ -53,7 +53,7 @@ class AssistancePolicy:
 
     total_action_twist /= np.sum(goal_distribution)
 
-    to_ret_twist = total_action_twist + self.user_action.twist
+    to_ret_twist = total_action_twist + self.user_action.twist # a + u from paper
     #print "before magnitude adjustment: " + str(to_ret_twist)
     if fix_magnitude_user_command:
       to_ret_twist *= np.linalg.norm(self.user_action.twist)/np.linalg.norm(to_ret_twist)

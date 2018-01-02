@@ -8,9 +8,10 @@ from Utils import *
 ACTION_DIMENSION = 6
 
 class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget):
-  def __init__(self, pose):
+  def __init__(self, pose, cost_multiplier=1):
     super(HuberAssistancePolicy, self).__init__(pose)
     self.set_constants(self.TRANSLATION_LINEAR_MULTIPLIER, self.TRANSLATION_DELTA_SWITCH, self.TRANSLATION_CONSTANT_ADD, self.ROTATION_LINEAR_MULTIPLIER, self.ROTATION_DELTA_SWITCH, self.ROTATION_CONSTANT_ADD, self.ROTATION_MULTIPLIER)
+    self.COST_MULTIPLIER = cost_multiplier
 
   def update(self, robot_state, user_action):
     super(HuberAssistancePolicy, self).update(robot_state, user_action)
@@ -140,9 +141,6 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
 
     return rotation_derivative
 
-
-
-
   #HUBER CONSTANTS
   #Values used when assistance always on
   TRANSLATION_LINEAR_MULTIPLIER = 2.25
@@ -175,7 +173,6 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
   ROTATION_LINEAR_COST_SUBTRACT = 0.0
 
 
-
   def set_constants(self, huber_translation_linear_multiplier, huber_translation_delta_switch, huber_translation_constant_add, huber_rotation_linear_multiplier, huber_rotation_delta_switch, huber_rotation_constant_add, huber_rotation_multiplier, robot_translation_cost_multiplier=None, robot_rotation_cost_multiplier=None):
     self.TRANSLATION_LINEAR_MULTIPLIER = huber_translation_linear_multiplier
     self.TRANSLATION_DELTA_SWITCH = huber_translation_delta_switch
@@ -195,15 +192,15 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
 
   #other constants that are cached for faster computation
   def calculate_cached_constants(self):
-    self.TRANSLATION_LINEAR_COST_MULT_TOTAL = self.TRANSLATION_LINEAR_MULTIPLIER + self.TRANSLATION_CONSTANT_ADD
-    self.TRANSLATION_QUADRATIC_COST_MULTPLIER = self.TRANSLATION_LINEAR_MULTIPLIER/self.TRANSLATION_DELTA_SWITCH
+    self.TRANSLATION_LINEAR_COST_MULT_TOTAL = self.COST_MULTIPLIER * (self.TRANSLATION_LINEAR_MULTIPLIER + self.TRANSLATION_CONSTANT_ADD)
+    self.TRANSLATION_QUADRATIC_COST_MULTPLIER = self.COST_MULTIPLIER * self.TRANSLATION_LINEAR_MULTIPLIER/self.TRANSLATION_DELTA_SWITCH
     self.TRANSLATION_QUADRATIC_COST_MULTPLIER_HALF = 0.5 * self.TRANSLATION_QUADRATIC_COST_MULTPLIER
-    self.TRANSLATION_LINEAR_COST_SUBTRACT = self.TRANSLATION_LINEAR_MULTIPLIER * self.TRANSLATION_DELTA_SWITCH * 0.5
+    self.TRANSLATION_LINEAR_COST_SUBTRACT = self.COST_MULTIPLIER * self.TRANSLATION_LINEAR_MULTIPLIER * self.TRANSLATION_DELTA_SWITCH * 0.5
 
-    self.ROTATION_LINEAR_COST_MULT_TOTAL = self.ROTATION_LINEAR_MULTIPLIER + self.ROTATION_CONSTANT_ADD
-    self.ROTATION_QUADRATIC_COST_MULTPLIER = self.ROTATION_LINEAR_MULTIPLIER/self.ROTATION_DELTA_SWITCH
+    self.ROTATION_LINEAR_COST_MULT_TOTAL = self.COST_MULTIPLIER * (self.ROTATION_LINEAR_MULTIPLIER + self.ROTATION_CONSTANT_ADD)
+    self.ROTATION_QUADRATIC_COST_MULTPLIER = self.COST_MULTIPLIER * self.ROTATION_LINEAR_MULTIPLIER/self.ROTATION_DELTA_SWITCH
     self.ROTATION_QUADRATIC_COST_MULTPLIER_HALF = 0.5 * self.ROTATION_QUADRATIC_COST_MULTPLIER
-    self.ROTATION_LINEAR_COST_SUBTRACT = self.ROTATION_LINEAR_MULTIPLIER * self.ROTATION_DELTA_SWITCH * 0.5
+    self.ROTATION_LINEAR_COST_SUBTRACT = self.COST_MULTIPLIER * self.ROTATION_LINEAR_MULTIPLIER * self.ROTATION_DELTA_SWITCH * 0.5
 
 
 def UserInputToRobotAction(user_input):
