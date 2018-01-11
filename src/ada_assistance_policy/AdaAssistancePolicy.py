@@ -27,7 +27,10 @@ class AdaAssistancePolicy:
     if goal_distribution.size == 0:
       goal_distribution = self.goal_predictor.get_distribution()
 
-    assisted_action = Action(twist=self.assist_policy.get_assisted_action(goal_distribution, **kwargs), finger_vel=self.assist_policy.user_action.finger_vel, switch_mode_to=self.assist_policy.user_action.switch_mode_to)
+    twist = self.assist_policy.get_assisted_action(goal_distribution, **kwargs)
+    assisted_action = Action(twist=twist, 
+                             finger_vel=self.assist_policy.user_action.finger_vel, 
+                             switch_mode_to=self.assist_policy.user_action.switch_mode_to)
 
     return assisted_action
 

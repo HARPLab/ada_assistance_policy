@@ -42,7 +42,7 @@ class AssistancePolicy:
 
 
 
-  def get_assisted_action(self, goal_distribution, fix_magnitude_user_command=False):
+  def get_assisted_action(self, goal_distribution, fix_magnitude_user_command=False, transition_function=lambda x,y: x+y):
     assert goal_distribution.size == len(self.goal_assist_policies)
 
     action_dimension = GoalPolicy.TargetPolicy.ACTION_DIMENSION
@@ -53,7 +53,7 @@ class AssistancePolicy:
 
     total_action_twist /= np.sum(goal_distribution)
 
-    to_ret_twist = total_action_twist + self.user_action.twist # a + u from paper
+    to_ret_twist = transition_function(total_action_twist, self.user_action.twist) # a + u from paper
     #print "before magnitude adjustment: " + str(to_ret_twist)
     if fix_magnitude_user_command:
       to_ret_twist *= np.linalg.norm(self.user_action.twist)/np.linalg.norm(to_ret_twist)

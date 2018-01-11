@@ -83,7 +83,15 @@ class AdaHandler:
   #    end_effector_trans = self.GetEndEffectorTransform()
   #    return self.robot_policy.get_action(goal_distribution, end_effector_trans)
 
-  def execute_policy(self, simulate_user=False, direct_teleop_only=False, blend_only=False, fix_magnitude_user_command=False, is_done_func=Is_Done_Func_Button_Hold, finish_trial_func=None, traj_data_recording=None):
+  def execute_policy(self, 
+                     simulate_user=False, 
+                     direct_teleop_only=False, 
+                     blend_only=False,
+                     fix_magnitude_user_command=False, 
+                     is_done_func=Is_Done_Func_Button_Hold, 
+                     finish_trial_func=None, 
+                     traj_data_recording=None,
+                     transition_function=lambda x,y: x+y):
       #goal_distribution = np.array([0.333, 0.333, 0.333])
       if simulate_user:
         self.user_bot = UserBot(self.goals)
@@ -105,8 +113,16 @@ class AdaHandler:
       if not direct_teleop_only and fix_magnitude_user_command:
         for goal_policy in self.robot_policy.assist_policy.goal_assist_policies:
           for target_policy in goal_policy.target_assist_policies:
-            target_policy.set_constants(huber_translation_linear_multiplier=1.55, huber_translation_delta_switch=0.11, huber_translation_constant_add=0.2, huber_rotation_linear_multiplier=0.20, huber_rotation_delta_switch=np.pi/72., huber_rotation_constant_add=0.3, huber_rotation_multiplier=0.20, robot_translation_cost_multiplier=14.0, robot_rotation_cost_multiplier=0.05)
-
+            target_policy.set_constants(huber_translation_linear_multiplier=1.55, 
+                                        huber_translation_delta_switch=0.11, 
+                                        huber_translation_constant_add=0.2, 
+                                        huber_rotation_linear_multiplier=0.20, 
+                                        huber_rotation_delta_switch=np.pi/72., 
+                                        huber_rotation_constant_add=0.3, 
+                                        huber_rotation_multiplier=0.20, 
+                                        robot_translation_cost_multiplier=14.0, 
+                                        robot_rotation_cost_multiplier=0.05)
+            
 
       #if specified traj data for recording, initialize
       if traj_data_recording:
@@ -118,8 +134,11 @@ class AdaHandler:
         elif fix_magnitude_user_command:
           assist_type = 'shared_auton_prop'
         
-        traj_data_recording.set_init_info(start_state=copy.deepcopy(robot_state), goals=copy.deepcopy(self.goals), input_interface_name=self.ada_teleop.teleop_interface, assist_type=assist_type)
-
+        traj_data_recording.set_init_info(start_state=copy.deepcopy(robot_state), 
+                                          goals=copy.deepcopy(self.goals), 
+                                          input_interface_name=self.ada_teleop.teleop_interface, 
+                                          assist_type=assist_type)
+        
       while True:
         start_time = time.time()
         robot_state.ee_trans = self.GetEndEffectorTransform()
@@ -153,7 +172,8 @@ class AdaHandler:
           if blend_only:
             action = self.robot_policy.get_blend_action()
           else:
-            action = self.robot_policy.get_action(fix_magnitude_user_command=fix_magnitude_user_command) # get the robot action
+            action = self.robot_policy.get_action(fix_magnitude_user_command=fix_magnitude_user_command,
+                                                  transition_function=transition_function) # get the robot action
         else:
           #if left trigger is being hit, direct teleop
           action = direct_teleop_action
