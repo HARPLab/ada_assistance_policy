@@ -47,7 +47,7 @@ num_control_modes = 2
 
   
 class AdaHandler:
-  def __init__(self, env, robot, goals, goal_objects, input_interface_name, num_input_dofs, use_finger_mode=True, goal_object_poses=None, cost_multiplier=1):
+  def __init__(self, env, robot, goals, goal_objects, input_interface_name, num_input_dofs, use_finger_mode=True, goal_object_poses=None):
 #      self.params = {'rand_start_radius':0.04,
 #             'noise_pwr': 0.3,  # magnitude of noise
 #             'vel_scale': 4.,   # scaling when sending velocity commands to robot
@@ -68,7 +68,7 @@ class AdaHandler:
       self.ada_teleop = AdaTeleopHandler(env, robot, input_interface_name, num_input_dofs, use_finger_mode)#, is_done_func=Teleop_Done)
       self.robot_state = self.ada_teleop.robot_state
 
-      self.robot_policy = AdaAssistancePolicy(self.goals, cost_multiplier)
+      self.robot_policy = AdaAssistancePolicy(self.goals)
 
       self.user_input_mapper = self.ada_teleop.user_input_mapper
 

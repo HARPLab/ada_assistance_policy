@@ -11,8 +11,8 @@ ADD_MORE_IK_SOLS = False
 
 class AdaAssistancePolicy:
 
-  def __init__(self, goals, cost_multiplier=1):
-    self.assist_policy = AssistancePolicy(goals, cost_multiplier)
+  def __init__(self, goals):
+    self.assist_policy = AssistancePolicy(goals)
     self.goal_predictor = GoalPredictor.GoalPredictor(goals)
 
     self.goals = goals

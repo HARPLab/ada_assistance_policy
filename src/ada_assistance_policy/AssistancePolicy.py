@@ -5,12 +5,12 @@ import AssistancePolicyOneGoal as GoalPolicy
 
 class AssistancePolicy:
 
-  def __init__(self, goals, cost_multiplier=1):
+  def __init__(self, goals):
     self.goals = goals
 
     self.goal_assist_policies = []
     for goal in goals:
-      self.goal_assist_policies.append(GoalPolicy.AssistancePolicyOneGoal(goal, cost_multiplier))
+      self.goal_assist_policies.append(GoalPolicy.AssistancePolicyOneGoal(goal))
 
     #self.user_input_mapper = UserInputMapper()
 

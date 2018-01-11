@@ -8,10 +8,15 @@ from Utils import *
 ACTION_DIMENSION = 6
 
 class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget):
-  def __init__(self, pose, cost_multiplier=1):
+  def __init__(self, pose):
     super(HuberAssistancePolicy, self).__init__(pose)
-    self.set_constants(self.TRANSLATION_LINEAR_MULTIPLIER, self.TRANSLATION_DELTA_SWITCH, self.TRANSLATION_CONSTANT_ADD, self.ROTATION_LINEAR_MULTIPLIER, self.ROTATION_DELTA_SWITCH, self.ROTATION_CONSTANT_ADD, self.ROTATION_MULTIPLIER)
-    self.COST_MULTIPLIER = cost_multiplier
+    self.set_constants(self.TRANSLATION_LINEAR_MULTIPLIER, 
+                       self.TRANSLATION_DELTA_SWITCH, 
+                       self.TRANSLATION_CONSTANT_ADD, 
+                       self.ROTATION_LINEAR_MULTIPLIER, 
+                       self.ROTATION_DELTA_SWITCH, 
+                       self.ROTATION_CONSTANT_ADD, 
+                       self.ROTATION_MULTIPLIER)
 
   def update(self, robot_state, user_action):
     super(HuberAssistancePolicy, self).update(robot_state, user_action)
@@ -42,7 +47,6 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
     q_rot = self.get_qderivative_rotation()
     q_trans = self.get_qderivative_translation()
     return np.append(q_trans, q_rot)
-
 
   #parts split into translation and rotation
   def get_value_translation(self, dist_translation=None):
@@ -83,8 +87,6 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
 
     return translation_derivative / self.ROBOT_TRANSLATION_COST_MULTIPLIER
 
-
-
   def get_value_rotation(self, dist_rotation=None):
     if dist_rotation is None:
       dist_rotation = self.dist_rotation
@@ -92,7 +94,7 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
     if dist_rotation <= self.ROTATION_DELTA_SWITCH:
       return self.ROTATION_MULTIPLIER * (self.ROTATION_QUADRATIC_COST_MULTPLIER_HALF * dist_rotation*dist_rotation + self.ROTATION_CONSTANT_ADD*dist_rotation)
     else:
-      return self.ROTATION_MULTIPLIER*(self.ROTATION_LINEAR_COST_MULT_TOTAL * dist_rotation - self.ROTATION_LINEAR_COST_SUBTRACT)
+      return self.ROTATION_MULTIPLIER * (self.ROTATION_LINEAR_COST_MULT_TOTAL * dist_rotation - self.ROTATION_LINEAR_COST_SUBTRACT)
 
   def get_cost_rotation(self, dist_rotation=None):
     if dist_rotation is None:
@@ -141,6 +143,8 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
 
     return rotation_derivative
 
+  COST_MULTIPLIER = 1.0
+
   #HUBER CONSTANTS
   #Values used when assistance always on
   TRANSLATION_LINEAR_MULTIPLIER = 2.25
@@ -159,8 +163,6 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
   ROBOT_TRANSLATION_COST_MULTIPLIER = 40.0
   ROBOT_ROTATION_COST_MULTIPLIER = 0.05
 
-
-
   #HUBER CACHED CONSTANTS that will be calculated soon
   TRANSLATION_LINEAR_COST_MULT_TOTAL = 0.0
   TRANSLATION_QUADRATIC_COST_MULTPLIER = 0.0
@@ -172,8 +174,16 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
   ROTATION_QUADRATIC_COST_MULTPLIER_HALF = 0.0
   ROTATION_LINEAR_COST_SUBTRACT = 0.0
 
-
-  def set_constants(self, huber_translation_linear_multiplier, huber_translation_delta_switch, huber_translation_constant_add, huber_rotation_linear_multiplier, huber_rotation_delta_switch, huber_rotation_constant_add, huber_rotation_multiplier, robot_translation_cost_multiplier=None, robot_rotation_cost_multiplier=None):
+  def set_constants(self, 
+                    huber_translation_linear_multiplier, 
+                    huber_translation_delta_switch, 
+                    huber_translation_constant_add, 
+                    huber_rotation_linear_multiplier, 
+                    huber_rotation_delta_switch, 
+                    huber_rotation_constant_add, 
+                    huber_rotation_multiplier, 
+                    robot_translation_cost_multiplier=None, 
+                    robot_rotation_cost_multiplier=None):
     self.TRANSLATION_LINEAR_MULTIPLIER = huber_translation_linear_multiplier
     self.TRANSLATION_DELTA_SWITCH = huber_translation_delta_switch
     self.TRANSLATION_CONSTANT_ADD = huber_translation_constant_add
@@ -202,10 +212,8 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
     self.ROTATION_QUADRATIC_COST_MULTPLIER_HALF = 0.5 * self.ROTATION_QUADRATIC_COST_MULTPLIER
     self.ROTATION_LINEAR_COST_SUBTRACT = self.COST_MULTIPLIER * self.ROTATION_LINEAR_MULTIPLIER * self.ROTATION_DELTA_SWITCH * 0.5
 
-
 def UserInputToRobotAction(user_input):
   return np.append(user_input, np.zeros(3))
-
 
 def transition_quaternion(quat, angular_vel, action_apply_time):
   norm_vel = np.linalg.norm(angular_vel)
