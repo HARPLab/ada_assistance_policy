@@ -32,11 +32,14 @@ class AssistancePolicyOneGoal:
   def get_qvalue(self):
     return self.target_assist_policies[self.min_val_ind].get_qvalue()
 
+  def get_qnovalue(self):
+    return self.target_assist_policies[self.min_val_ind].get_qnovalue()
+
   def get_action(self):
     values = [targ_policy.get_value() for targ_policy in self.target_assist_policies]
     min_val_ind = np.argmin(values)
+    # print 'Action: ', self.target_assist_policies[min_val_ind].get_action()
     return self.target_assist_policies[min_val_ind].get_action()
-
 
   def get_min_value_pose(self):
     return self.goal.target_poses[self.min_val_ind]

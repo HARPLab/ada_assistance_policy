@@ -10,17 +10,15 @@ import time
 ADD_MORE_IK_SOLS = False
 
 class AdaAssistancePolicy:
-
   def __init__(self, goals):
     self.assist_policy = AssistancePolicy(goals)
     self.goal_predictor = GoalPredictor.GoalPredictor(goals)
-
     self.goals = goals
 
   def update(self, robot_state, user_action):
     self.assist_policy.update(robot_state, user_action)
-    values,q_values = self.assist_policy.get_values()
-    self.goal_predictor.update_distribution(values, q_values)
+    values,q_values = self.assist_policy.get_novalues()
+    self.goal_predictor.update_distribution(values, q_values, user_action)
     self.robot_state = robot_state
 
   def get_action(self, goal_distribution = np.array([]), **kwargs):
@@ -34,13 +32,11 @@ class AdaAssistancePolicy:
 
     return assisted_action
 
-
   def get_blend_action(self, goal_distribution = np.array([]), **kwargs):
     if goal_distribution.size == 0:
       goal_distribution = self.goal_predictor.get_distribution()
 
     max_prob_goal_ind = np.argmax(goal_distribution)
-
 
     #check if we meet the confidence criteria which dictates whether or not assistance is provided
     #use the one from ancas paper - euclidean distance and some threshhold

@@ -7,13 +7,9 @@ class AssistancePolicy:
 
   def __init__(self, goals):
     self.goals = goals
-
     self.goal_assist_policies = []
     for goal in goals:
       self.goal_assist_policies.append(GoalPolicy.AssistancePolicyOneGoal(goal))
-
-    #self.user_input_mapper = UserInputMapper()
-
 
   def update(self, robot_state, user_action):
     self.robot_state = robot_state
@@ -33,14 +29,19 @@ class AssistancePolicy:
 
     return values,qvalues
 
+  def get_novalues(self):
+    qnovalues = np.ndarray(len(self.goal_assist_policies))
+    qvalues = np.ndarray(len(self.goal_assist_policies))
+    for ind,goal_policy in enumerate(self.goal_assist_policies):
+      qnovalues[ind] = goal_policy.get_qnovalue()
+      qvalues[ind] = goal_policy.get_qvalue()
+
+    return qnovalues,qvalues
 
   def get_probs_last_user_action(self):
     values,qvalues = self.get_values()
     #print np.exp(-(qvalues-values))
     return np.exp(-(qvalues-values))
-
-
-
 
   def get_assisted_action(self, goal_distribution, fix_magnitude_user_command=False, transition_function=lambda x,y: x+y):
     assert goal_distribution.size == len(self.goal_assist_policies)

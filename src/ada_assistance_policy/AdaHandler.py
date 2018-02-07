@@ -142,6 +142,11 @@ class AdaHandler:
       while True:
         start_time = time.time()
         robot_state.ee_trans = self.GetEndEffectorTransform()
+
+        # TODO LOG THIS NUMBER
+        print robot_state.ee_trans[:,3]
+        
+
         ee_trans = robot_state.ee_trans
         robot_dof_values = self.robot.GetDOFValues()
         if simulate_user:
@@ -197,8 +202,6 @@ class AdaHandler:
 
         if traj_data_recording:
           traj_data_recording.add_datapoint(robot_state=copy.deepcopy(robot_state), robot_dof_values=copy.copy(robot_dof_values), user_input_all=copy.deepcopy(user_input_all), direct_teleop_action=copy.deepcopy(direct_teleop_action), executed_action=copy.deepcopy(action), goal_distribution=self.robot_policy.goal_predictor.get_distribution())
-
-
 
         #print ('time: %.5f' % (end_time-start_time)) + '   per iter: ' + str(time_per_iter)
         #print 'sleep time: ' + str(max(0., time_per_iter - (end_time-start_time)))

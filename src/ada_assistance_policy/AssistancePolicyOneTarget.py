@@ -15,23 +15,21 @@ class AssistancePolicyOneTarget(object):
     self.user_action = copy.deepcopy(user_action)
     self.robot_state_after_action = self.state_after_user_action(robot_state, user_action)
 
+    self.robot_no_state = copy.deepcopy(robot_state)
+    self.user_inaction = copy.deepcopy(user_action)
+    self.user_inaction.twist = np.zeros(self.user_inaction.twist.shape[0])
+    self.robot_state_after_inaction = self.state_after_user_action(self.robot_no_state, self.user_inaction)
+
   def get_action(self):
     ee_trans = self.last_ee_trans
     pos_diff = 5.*(self.goal_pose[0:3,3] - ee_trans[0:3,3])
-
     pos_diff_norm = np.linalg.norm(pos_diff)
-
     clip_norm_val = 0.02
     if (pos_diff_norm > clip_norm_val):
       pos_diff /= pos_diff_norm/clip_norm_val
 
     return pos_diff
 
-
   #def pose_after_user_action(self, ee_trans, user_action):
   def state_after_user_action(self, robot_state, user_action):
     return robot_state.state_after_action(user_action, self.ACTION_APPLY_TIME)
-
-
-#def UserInputToRobotAction(user_input):
-#  return user_input

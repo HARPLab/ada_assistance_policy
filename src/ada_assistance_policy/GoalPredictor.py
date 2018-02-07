@@ -9,13 +9,14 @@ class GoalPredictor(object):
   log_max_prob_any_goal = np.log(max_prob_any_goal)
   def __init__(self, goals):
     self.goals = goals
+    self.discount_factor = 1
     self.log_goal_distribution = np.log((1./len(self.goals))*np.ones(len(self.goals)))
 
-
-  def update_distribution(self, values, q_values):
-    self.log_goal_distribution -= q_values - values
+  def update_distribution(self, values, q_values, user_action):
+    print 'Belief Update: ', (q_values - values)
+    self.log_goal_distribution =  self.discount_factor * self.log_goal_distribution - (q_values - values)
     self.normalize_log_distribution()
-
+    
   def normalize_log_distribution(self):
     log_normalization_val = logsumexp(self.log_goal_distribution)
     self.log_goal_distribution -= log_normalization_val

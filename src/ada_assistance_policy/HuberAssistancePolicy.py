@@ -4,7 +4,6 @@ import AssistancePolicyOneTarget
 import tf.transformations as transmethods
 from Utils import *
 
-
 ACTION_DIMENSION = 6
 
 class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget):
@@ -22,16 +21,20 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
     super(HuberAssistancePolicy, self).update(robot_state, user_action)
     self.dist_translation = np.linalg.norm(robot_state.ee_trans[0:3,3] - self.goal_pos)
     self.dist_translation_aftertrans = np.linalg.norm(self.robot_state_after_action.ee_trans[0:3,3] - self.goal_pos)
+    self.dist_translation_afternotrans = np.linalg.norm(self.robot_state_after_inaction.ee_trans[0:3,3] - self.goal_pos)
 
     self.quat_curr = transmethods.quaternion_from_matrix(robot_state.ee_trans)
     self.quat_after_trans = transmethods.quaternion_from_matrix(self.robot_state_after_action.ee_trans)
+    self.quat_after_notrans = transmethods.quaternion_from_matrix(self.robot_state_after_inaction.ee_trans)
 
     self.dist_rotation = QuaternionDistance(self.quat_curr, self.goal_quat)
     self.dist_rotation_aftertrans = QuaternionDistance(self.quat_after_trans, self.goal_quat)
+    self.dist_rotation_afternotrans = QuaternionDistance(self.quat_after_notrans, self.goal_quat)
 
     #something about mode switch distance???
 
   def get_action(self):
+    # print 'action: ', -self.get_q_derivative()
     return -self.get_q_derivative()
 
   def get_cost(self):
@@ -42,6 +45,9 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
 
   def get_qvalue(self):
     return self.get_qvalue_translation() + self.get_qvalue_rotation()
+
+  def get_qnovalue(self):
+    return self.get_qnovalue_translation() + self.get_qnovalue_rotation()
 
   def get_q_derivative(self):
     q_rot = self.get_qderivative_rotation()
@@ -69,6 +75,10 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
 
   def get_qvalue_translation(self):
     return self.get_cost_translation() + self.get_value_translation(self.dist_translation_aftertrans)
+
+  def get_qnovalue_translation(self):
+    return self.get_cost_translation() + self.get_value_translation(self.dist_translation_afternotrans)
+
 
   def get_qderivative_translation(self):
     translation_diff = self.robot_state_after_action.ee_trans[0:3,3] - self.goal_pos
@@ -107,6 +117,10 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
 
   def get_qvalue_rotation(self):
     return self.get_cost_rotation() + self.get_value_rotation(self.dist_rotation_aftertrans)
+
+  def get_qnovalue_rotation(self):
+    return self.get_cost_rotation() + self.get_value_rotation(self.dist_rotation_afternotrans)
+
 
   def get_qderivative_rotation(self):
     quat_between = transmethods.quaternion_multiply(self.goal_quat, transmethods.quaternion_inverse(self.quat_after_trans))
