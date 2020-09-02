@@ -91,9 +91,9 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
       translation_derivative += self.TRANSLATION_QUADRATIC_COST_MULTPLIER*translation_diff
 
     #hacky part to make it not jumpy
-    dist_translation_limit = 2e-2;
+    dist_translation_limit = 2e-2
     if (dist_to_go < dist_translation_limit):
-      translation_derivative *= dist_to_go/dist_translation_limit;
+      translation_derivative *= dist_to_go/dist_translation_limit
 
     return translation_derivative / self.ROBOT_TRANSLATION_COST_MULTIPLIER
 
@@ -150,7 +150,7 @@ class HuberAssistancePolicy(AssistancePolicyOneTarget.AssistancePolicyOneTarget)
 #      print 'rotdir good'
 
     #hacky part to make it not jumpy
-    dist_rotation_limit = np.pi/12.;
+    dist_rotation_limit = np.pi/12.
     #print 'dist rotation: ' + str(self.dist_rotation_aftertrans)
     if (self.dist_rotation_aftertrans < dist_rotation_limit):
       rotation_derivative *= self.dist_rotation_aftertrans/dist_rotation_limit;

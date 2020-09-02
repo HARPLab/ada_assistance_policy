@@ -27,6 +27,8 @@ import prpy
 
 from ada_teleoperation.AdaTeleopHandler import AdaTeleopHandler, Is_Done_Func_Button_Hold
 from ada_teleoperation.RobotState import *
+from GoalPredictor import PolicyBasedGoalPredictor, MergedGoalPredictor
+from GazeBasedPredictor import load_gaze_predictor_from_params
 
 
 CONTROL_HZ = 40.
@@ -78,9 +80,10 @@ POLICY_OPTS = ['direct_teleop_only',
                'blend_only', 'fix_magnitude_user_command', 'transition_function']
 TRIAL_OPTS = ['simulate_user', 'is_done_func', 'finish_trial_func']
 OUTPUT_OPTS = ['traj_data_recording']
+PREDICTION_OPTS = ['predict_policy', 'predict_gaze']
 
 
-class PolicyConfig(namedtuple('PolicyConfig', POLICY_OPTS + TRIAL_OPTS + OUTPUT_OPTS)):
+class PolicyConfig(namedtuple('PolicyConfig', POLICY_OPTS + TRIAL_OPTS + OUTPUT_OPTS + PREDICTION_OPTS)):
     __DEFAULT_OPTS__ = {
         'direct_teleop_only': False,
         'blend_only': False,
@@ -89,7 +92,9 @@ class PolicyConfig(namedtuple('PolicyConfig', POLICY_OPTS + TRIAL_OPTS + OUTPUT_
         'transition_function': lambda x, y: x+y,
         'simulate_user': False,
         'finish_trial_func': None,
-        'traj_data_recording': None
+        'traj_data_recording': None,
+        'predict_policy': True,
+        'predict_gaze': False
     }
 
     @classmethod
@@ -100,107 +105,84 @@ class PolicyConfig(namedtuple('PolicyConfig', POLICY_OPTS + TRIAL_OPTS + OUTPUT_
 
         config = cls(**vals)
 
+        config._cache = {}
+
         return config
 
-    def get_assistance_policy(self, robot_policy):
+    def get_goal_predictor(self, goals):
+        predictors = []
+        if self.predict_policy:
+            predictors.append(GoalPredictor(self.get_rl_policy(goals)))
+        if self.predict_gaze:
+            predictors.append(load_gaze_predictor_from_params())
+        
+        if len(predictors) > 1:
+            return MergedGoalPredictor(predictors) # todo: weights
+        elif len(predictors) == 1:
+            return predictors[0]
+        else:
+            raise RuntimeError("no prediction strategy specified!")
+
+    def get_rl_policy(self, goals):
+        # cache for repeated access to same object
+        # for probability creation
+        if 'rl_policy' not in self._cache:
+            rl_policy = AssistancePolicy(goals)
+            if self.fix_magnitude_user_command:
+                # update the constants appropriately
+                for goal_policy in rl_policy.goal_assist_policies:
+                    for target_policy in goal_policy.target_assist_policies:
+                        target_policy.set_constants(
+                            **FixMagnitudeSharedAutonPolicy.__HUBER_CONSTS__)
+            self._cache['rl_policy'] = rl_policy
+        return self._cache['rl_policy']
+
+    def get_assistance_policy(self):
         if self.direct_teleop_only:
             return DirectTeleopPolicy()
         elif self.blend_only:
-            return BlendPolicy(robot_policy)
+            return BlendPolicy()
         elif self.fix_magnitude_user_command:
-            return FixMagnitudeSharedAutonPolicy(robot_policy, self.transition_function)
+            return FixMagnitudeSharedAutonPolicy(self.transition_function)
         else:
-            return SharedAutonPolicy(robot_policy, self.transition_function)
-
-
-class DirectTeleopPolicy:
-    def __init__(self, *args, **kwargs):
-        self.assist_type = 'None'
-
-    def get_action(self, direct_action):
-        return direct_action
-
-
-class BlendPolicy:
-    def __init__(self, robot_policy, *args, **kwargs):
-        self.assist_type = 'blend'
-        self.robot_policy = robot_policy
-
-    def get_action(self, direct_action):
-        return self.robot_policy.get_blend_action()
-
-
-class SharedAutonPolicy:
-    def __init__(self, robot_policy, transition_function, *args, **kwargs):
-        self.assist_type = 'shared_auton'
-        self.robot_policy = robot_policy
-        self.transition_function = transition_function
-
-    def get_action(self, direct_action):
-        return self.robot_policy.get_action(fix_magnitude_user_command=False,
-                                            transition_function=self.transition_function)
-
-
-class FixMagnitudeSharedAutonPolicy:
-    __HUBER_CONSTS__ = {
-        'huber_translation_linear_multiplier': 1.55,
-        'huber_translation_delta_switch': 0.11,
-        'huber_translation_constant_add': 0.2,
-        'huber_rotation_linear_multiplier': 0.20,
-        'huber_rotation_delta_switch': np.pi/72.,
-        'huber_rotation_constant_add': 0.3,
-        'huber_rotation_multiplier': 0.20,
-        'robot_translation_cost_multiplier': 14.0,
-        'robot_rotation_cost_multiplier': 0.05
-    }
-
-    def __init__(self, robot_policy, transition_function, *args, **kwargs):
-        self.assist_type = 'shared_auton_prop'
-        self.robot_policy = robot_policy
-        self.transition_function = transition_function
-
-        # update the constants appropriately
-        for goal_policy in self.robot_policy.assist_policy.goal_assist_policies:
-            for target_policy in goal_policy.target_assist_policies:
-                target_policy.set_constants(
-                    **FixMagnitudeSharedAutonPolicy.__HUBER_CONSTS__)
-
-    def get_action(self, direct_action):
-        return self.robot_policy.get_action(fix_magnitude_user_command=True,
-                                            transition_function=self.transition_function)
+            return SharedAutonPolicy(self.transition_function)
 
 
 class AdaHandler:
     def __init__(self, config):
         self.config = config
-        self.robot_policy = AdaAssistancePolicy(config.goals)
         self.ada_teleop = config.get_teleop_handler()
         self.user_input_mapper = self.ada_teleop.user_input_mapper
 
     def execute_policy(self, policy_config):
 
+        # TODO: move this to config
         time_per_iter = 1./CONTROL_HZ
 
+        # load in the objects for executing the policy
         user_input = self.config.get_user_input(policy_config.simulate_user)
-        policy = policy_config.get_assistance_policy(self.robot_policy)
+        rl_policy = policy_config.get_rl_policy(self.config.goals)
+        goal_predictor = policy_config.get_goal_predictor(self.config.goals)
+        assistance_policy = policy_config.get_assistance_policy(self.robot_policy)
 
         robot_state = self.ada_teleop.robot_state
-        robot_state.ee_trans = self.config.robot.arm.GetEndEffectorTransform()
-        ee_trans = robot_state.ee_trans
-        robot_dof_values = self.config.robot.GetDOFValues()
 
         # if specified traj data for recording, initialize
         traj_data_recording = policy_config.traj_data_recording
-        if traj_data_recording:
-
-            traj_data_recording.set_init_info(start_state=copy.deepcopy(robot_state),
-                                              goals=copy.deepcopy(
-                                                  self.config.goals),
-                                              input_interface_name=self.ada_teleop.teleop_interface,
-                                              assist_type=policy.assist_type)
+        if traj_data_recording is not None:
+            traj_data_recording.set_init_info(
+                start_state=copy.deepcopy(robot_state),
+                goals=copy.deepcopy(self.config.goals),
+                input_interface_name=self.ada_teleop.teleop_interface,
+                assist_type=policy.assist_type)
         vis = vistools.VisualizationHandler()
 
         def _do_update(evt):
+            # update the robot state to match the actual robot position
+            robot_state.ee_trans = self.config.robot.arm.GetEndEffectorTransform()
+            ee_trans = robot_state.ee_trans
+
+            # get the user input
             try:
                 user_input_all = user_input.get_user_command()
                 direct_teleop_action = self.user_input_mapper.input_to_action(
@@ -212,14 +194,23 @@ class AdaHandler:
 
 
             # update the policy
-            self.robot_policy.update(robot_state, direct_teleop_action)
+            rl_policy.update(robot_state, direct_teleop_action)
+            # get the goal probabilities
+            # must be AFTER rl_policy.update()
+            # since if we're using policy-based prediction, we're using the SAME policy object
+            # both here to generate candidate actions and in the goal predictor
+            goal_distribution = goal_predictor.get_distribution()
+
             # if left trigger is being hit (i.e. mode switch), bypass assistance
             if user_input_all is not None and user_input_all.button_changes[0] == 1:
                 action = direct_teleop_action
             else:
-                action = policy.get_action(direct_teleop_action)
+                # defer to the assistance policy object to determine the appropriate fused action
+                action = policy.get_action(
+                    robot_state, direct_teleop_action, config.goals, goal_distribution, rl_policy.get_robot_actions())
 
-            self.ada_teleop.ExecuteAction(action)    # execute robot action
+            # execute robot action
+            self.ada_teleop.ExecuteAction(action)    
 
             ### visualization ###
             vis.draw_probability_text(
@@ -228,12 +219,18 @@ class AdaHandler:
             vis.draw_action_arrows(
                 ee_trans, direct_teleop_action.twist[0:3], action.twist[0:3]-direct_teleop_action.twist[0:3])
 
-            ### end visualization ###
-
+            ### logging ###
             if traj_data_recording:
-                traj_data_recording.add_datapoint(robot_state=copy.deepcopy(robot_state), robot_dof_values=copy.copy(robot_dof_values), user_input_all=copy.deepcopy(
-                    user_input_all), direct_teleop_action=copy.deepcopy(direct_teleop_action), executed_action=copy.deepcopy(action), goal_distribution=self.robot_policy.goal_predictor.get_distribution())
+                robot_dof_values = self.config.robot.GetDOFValues()
+                traj_data_recording.add_datapoint(
+                    robot_state = copy.deepcopy(robot_state), 
+                    robot_dof_values = copy.copy(robot_dof_values), 
+                    user_input_all = copy.deepcopy(user_input_all), 
+                    direct_teleop_action = copy.deepcopy(direct_teleop_action), 
+                    executed_action = copy.deepcopy(action), 
+                    goal_distribution = goal_distribution)
 
+            ### check if we're still running or not ###
             if policy_config.is_done_func(self.config.env, self.config.robot, user_input_all) or rospy.is_shutdown():
                 self._is_running = False
                 self.timer.shutdown()

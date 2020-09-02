@@ -6,69 +6,102 @@ from AssistancePolicy import *
 from OpenraveUtils import *
 import math
 import time
+# import GazeBasedPredictor
 
 ADD_MORE_IK_SOLS = False
 
-class AdaAssistancePolicy:
-  def __init__(self, goals):
-    self.assist_policy = AssistancePolicy(goals)
-    self.goal_predictor = GoalPredictor.GoalPredictor(goals)
-    self.goals = goals
 
-  def update(self, robot_state, user_action):
-    self.assist_policy.update(robot_state, user_action)
-    values,q_values = self.assist_policy.get_novalues()
-    self.goal_predictor.update_distribution(values, q_values, user_action)
-    self.robot_state = robot_state
+class DirectTeleopPolicy:
+    def __init__(self, *args, **kwargs):
+        self.assist_type = 'None'
 
-  def get_action(self, goal_distribution = np.array([]), **kwargs):
-    if goal_distribution.size == 0:
-      goal_distribution = self.goal_predictor.get_distribution()
+    def get_action(self, robot_state, direct_action, goals, goal_distribution, twist_candidates):
+        return direct_action
 
-    twist = self.assist_policy.get_assisted_action(goal_distribution, **kwargs)
-    assisted_action = Action(twist=twist, 
-                             finger_vel=self.assist_policy.user_action.finger_vel, 
-                             switch_mode_to=self.assist_policy.user_action.switch_mode_to)
 
-    return assisted_action
+class BlendPolicy:
+    def __init__(self, *args, **kwargs):
+        self.assist_type = 'blend'
+        # TODO: set from config?
+        self.check_confidence = BlendPolicy.blend_confidence_function_prob_diff 
 
-  def get_blend_action(self, goal_distribution = np.array([]), **kwargs):
-    if goal_distribution.size == 0:
-      goal_distribution = self.goal_predictor.get_distribution()
+    def get_action(self, robot_state, direct_action, goals, goal_distribution, twist_candidates):
+        max_prob_goal_ind = np.argmax(goal_distribution)
 
-    max_prob_goal_ind = np.argmax(goal_distribution)
+        #check if we meet the confidence criteria which dictates whether or not assistance is provided
+        #use the one from ancas paper - euclidean distance and some threshhold
+        #if blend_confidence_function_euclidean_distance(self.robot_state, self.goals[max_prob_goal_ind]):
+        if self.check_confidence(robot_state, goals[max_prob_goal_ind], goal_distribution):
+            return Action(twist=twist_candidates[max_prob_goal_ind],
+                        finger_vel=direct_action.finger_vel,
+                        switch_mode_to=direct_action.switch_mode_to)
 
-    #check if we meet the confidence criteria which dictates whether or not assistance is provided
-    #use the one from ancas paper - euclidean distance and some threshhold
-    #if blend_confidence_function_euclidean_distance(self.robot_state, self.goals[max_prob_goal_ind]):
-    if blend_confidence_function_prob_diff(goal_distribution):
-      goal_distribution_all_max = np.zeros(len(goal_distribution))
-      goal_distribution_all_max[max_prob_goal_ind] = 1.0
-      assisted_action = Action(twist=self.assist_policy.get_assisted_action(goal_distribution_all_max, **kwargs), finger_vel=self.assist_policy.user_action.finger_vel, switch_mode_to=self.assist_policy.user_action.switch_mode_to)
-      return assisted_action
-    else:
-      #if we don't meet confidence function, use direct teleop
-      return self.assist_policy.user_action
+        else:
+            #if we don't meet confidence function, use direct teleop
+            return direct_action
 
-def blend_confidence_function_prob_diff(goal_distribution, prob_diff_required=0.4):
-  if len(goal_distribution) <= 1:
-    return True
+    @staticmethod
+    def blend_confidence_function_prob_diff(robot_state, goal, goal_distribution, prob_diff_required=0.4):
+        if len(goal_distribution) <= 1:
+            return True
 
-  goal_distribution_sorted = np.sort(goal_distribution)
-  return goal_distribution_sorted[-1] - goal_distribution_sorted[-2] > prob_diff_required
+        goal_distribution_sorted = np.sort(goal_distribution)
+        return goal_distribution_sorted[-1] - goal_distribution_sorted[-2] > prob_diff_required
 
-  manip_pos = robot_state.get_pos()
-  goal_poses = goal.target_poses
-  goal_pose_distances = [np.linalg.norm(manip_pos - pose[0:3,3]) for pose in goal_poses]
-  dist_to_nearest_goal = np.min(goal_pose_distances)
-  return dist_to_nearest_goal < distance_thresh
+    @staticmethod
+    def blend_confidence_function_euclidean_distance(robot_state, goal, goal_distribution, distance_thresh=0.10):
+        manip_pos = robot_state.get_pos()
+        goal_poses = goal.target_poses
+        goal_pose_distances = [np.linalg.norm(manip_pos - pose[0:3,3]) for pose in goal_poses]
+        dist_to_nearest_goal = np.min(goal_pose_distances)
+        return dist_to_nearest_goal < distance_thresh
 
-def blend_confidence_function_euclidean_distance(robot_state, goal, distance_thresh=0.10):
-  manip_pos = robot_state.get_pos()
-  goal_poses = goal.target_poses
-  goal_pose_distances = [np.linalg.norm(manip_pos - pose[0:3,3]) for pose in goal_poses]
-  dist_to_nearest_goal = np.min(goal_pose_distances)
-  return dist_to_nearest_goal < distance_thresh
+
+class SharedAutonPolicy:
+    def __init__(self, transition_function, *args, **kwargs):
+        self.assist_type = 'shared_auton'
+        self.transition_function = transition_function
+
+    def get_action(self, robot_state, direct_action, goals, goal_distribution, twist_candidates):
+        #TODO how do we handle mode switch vs. not?
+        total_action_twist = np.zeros(GoalPolicy.TargetPolicy.ACTION_DIMENSION)
+
+        # take the expected robot action over the candidates
+        for goal_action, goal_prob in zip(action_candidates, goal_distribution):
+            total_action_twist += goal_prob * goal_action
+        total_action_twist /= np.sum(goal_distribution)
+
+        to_ret_twist = transition_function(
+            total_action_twist, direct_action.twist)  # a + u from paper
+
+        return Action(twist=to_ret_twist,
+                    finger_vel=direct_action.finger_vel,
+                    switch_mode_to=direct_action.switch_mode_to)
+
+class FixMagnitudeSharedAutonPolicy(SharedAutonPolicy):
+    __HUBER_CONSTS__ = {
+        'huber_translation_linear_multiplier': 1.55,
+        'huber_translation_delta_switch': 0.11,
+        'huber_translation_constant_add': 0.2,
+        'huber_rotation_linear_multiplier': 0.20,
+        'huber_rotation_delta_switch': np.pi/72.,
+        'huber_rotation_constant_add': 0.3,
+        'huber_rotation_multiplier': 0.20,
+        'robot_translation_cost_multiplier': 14.0,
+        'robot_rotation_cost_multiplier': 0.05
+    }
+
+    def __init__(self, robot_policy, transition_function, *args, **kwargs):
+        super(FixMagnitudeSharedAutonPolicy, self).__init__(robot_policy, transition_function, *args, **kwargs)
+        self.assist_type = 'shared_auton_prop'
+
+    def get_action(self, robot_state, direct_action, goals, goal_distribution, twist_candidates):
+        action = super(FixMagnitudeSharedAutonPolicy, self).get_action(
+            self, robot_state, direct_action, goals, goal_distribution, twist_candidates)
+        # fix the magnitude as requested
+        action.twist *= np.linalg.norm(direct_action.twist) / np.linalg.norm(action.twist)
+        return action
+
 
 #generic functions
 def goal_from_object(object, manip):

@@ -5,6 +5,7 @@ import numpy as np
 from scipy.misc import logsumexp
 import rospy
 from semantic_gaze_labeling.msg import LabeledFixationDataPoint
+from GoalPredictor import normalize_and_clip
 
 class GazeBasedPredictor:
     DT = 150 # CHECK THESE
@@ -21,33 +22,29 @@ class GazeBasedPredictor:
 
         self.reset()
 
-
-    def update(self, label, duration):
+    def process_message(self, label, duration):
         self._update_seq_with_label(label, duration)
         self._update_prob_for_seq()
 
     def reset(self):
         self._seq = []
-        self._prob = np.full( (self.model.n_components,), 1./self.model.n_components ) # start with uniform prob
-
+        prob = np.full( (self.model.n_components,), 1./self.model.n_components ) # start with uniform prob
+        self._log_prob = np.log(prob)
 
     def _update_seq_with_label(self, label, duration):
         ct = max(min( int(label/GazeBasedPredictor.DT), GazeBasedPredictor.NMAX), 1)
         self._seq += [self.label_remap[label]] * ct
 
     def _update_prob_for_seq(self):
-        raw_log_prob = [ self.model.score( np.reshape(remap[self.seq], (-1, 1)) ) for remap in self.goal_remaps ]
-        log_prob = raw_log_prob - logsumexp(raw_log_prob)
-        self._prob = np.log(log_prob)
+        # TODO: could do a much fancier incremental thing from the model which would run faster
+        # like, the point of HMMs is that you can do this efficiently without starting from nothing
+        # but since (1) labels only come in at like ~1-2 Hz and (2) sequences are pretty short (<100)
+        # almost certainly not worth it
+        raw_log_prob = [ self.model.score( np.reshape(remap[self._seq], (-1, 1)) ) for remap in self.goal_remaps ]
+        self._log_prob = normalize_and_clip(raw_log_prob)
 
-    # guard against setting from outside
-    @property
-    def prob(self):
-        return self._prob
-
-    @property
-    def seq(self):
-        return self._seq
+    def get_log_distribution(self):
+        return self._log_prob
 
 
 class GazeBasedPredictorWrapper:
@@ -57,10 +54,19 @@ class GazeBasedPredictorWrapper:
 
     def labeled_fix_callback(self, msg):
         # Do we need to guarantee that we receive these in sequence order or something?
-        self.predictor.update(msg.label, msg.duration)
+        self.predictor.process_message(msg.label, msg.duration)
+
+    def update(self):
+        # called from main (joystick) thread
+        # but we're running separately
+        # so don't do anything
+        pass
+
+    def get_log_distribution(self):
+        return self.predictor.get_log_distribution()
 
     def get_distribution(self):
-        return self.predictor.prob
+        return np.exp(self.get_log_distribution())
 
 
 def load_gaze_predictor_from_params():
