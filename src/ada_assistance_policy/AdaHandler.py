@@ -33,20 +33,34 @@ CONTROL_HZ = 40.
 
 
 ROBOT_OPTS = ['env', 'robot']
-INPUT_OPTS = ['input_interface_name', 'num_interface_dofs',
-              'user_finger_mode']
-GOAL_OPTS = ['goal', 'goal_objects', 'goal_object_poses']
+GOAL_OPTS = ['goals', 'goal_objects', 'goal_object_poses']
+INPUT_OPTS = ['input_interface_name', 'num_input_dofs',
+              'use_finger_mode']
 
 
-class AdaHandlerConfig(namedtuple('AdaHandlerConfig', ROBOT_OPTS + INPUT_OPTS + GOAL_OPTS)):
-    def __init__(self, **kwargs):
-        super(AdaHandlerConfig, self).__init__(**kwargs)
+class AdaHandlerConfig(namedtuple('AdaHandlerConfig', ROBOT_OPTS + GOAL_OPTS + INPUT_OPTS)):
+
+    @classmethod
+    def create(cls, *args, **kwargs):
+        # super() constructer doesn't support missing params
+        # so fill them in before
+        # first remap positional to keyword args
+        kwargs.update({k: v for k, v in zip(cls._fields, args)})
+
+        if 'goal_object_poses' not in kwargs:
+            kwargs['goal_object_poses'] = [ goal_obj.GetTransform()
+                                           for goal_obj in kwargs['goal_objects'] ]
+
+        config = cls(**kwargs)
+
         # Validation of various stuff goes here!
-        self._cache = {}
+        config._cache = {}
+
+        return config
 
     def get_user_input(self, sim=False):
         if sim:
-            return UserBot(self.goals, self.robot)
+            return UserBot(self.goals, self.robot, self.get_teleop_handler().robot_state)
         else:
             return self.get_teleop_handler()
 
@@ -57,12 +71,7 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', ROBOT_OPTS + INPUT_OPTS + 
                 self.env, self.robot, self.input_interface_name, self.num_input_dofs, self.use_finger_mode)
         return self._cache['teleop_handler']
 
-    def get_goal_obj_poses(self):
-        if not self.goal_object_poses and self.goal_objects:
-            return [goal_obj.GetTransform()
-                    for goal_obj in self.goal_objects]
-        else:
-            self.goal_object_poses
+
 
 
 POLICY_OPTS = ['direct_teleop_only',
@@ -72,14 +81,26 @@ OUTPUT_OPTS = ['traj_data_recording']
 
 
 class PolicyConfig(namedtuple('PolicyConfig', POLICY_OPTS + TRIAL_OPTS + OUTPUT_OPTS)):
-    def __init__(self, *args, **kwargs):
-        super(PolicyConfig, self).__init__(*args, **kwargs)
+    __DEFAULT_OPTS__ = {
+        'direct_teleop_only': False,
+        'blend_only': False,
+        'fix_magnitude_user_command': False,
+        'is_done_func': Is_Done_Func_Button_Hold,
+        'transition_function': lambda x, y: x+y,
+        'simulate_user': False,
+        'finish_trial_func': None,
+        'traj_data_recording': None
+    }
 
-        # basic validation for omitted inputs
-        if self.is_done_func is None:
-            self.is_done_func = Is_Done_Func_Button_Hold,
-        if self.transition_function is None:
-            self.transition_function = lambda (x, y): return x+y
+    @classmethod
+    def create(cls, *args, **kwargs):
+        kwargs.update({k: v for k, v in zip(cls._fields, args)})
+        vals = cls.__DEFAULT_OPTS__.copy()
+        vals.update(kwargs)
+
+        config = cls(**vals)
+
+        return config
 
     def get_assistance_policy(self, robot_policy):
         if self.direct_teleop_only:
@@ -150,7 +171,7 @@ class FixMagnitudeSharedAutonPolicy:
 
 
 class AdaHandler:
-    def __init__(self, config,  goals, goal_objects, goal_object_poses=None):
+    def __init__(self, config):
         self.config = config
         self.robot_policy = AdaAssistancePolicy(config.goals)
         self.ada_teleop = config.get_teleop_handler()
@@ -164,9 +185,9 @@ class AdaHandler:
         policy = policy_config.get_assistance_policy(self.robot_policy)
 
         robot_state = self.ada_teleop.robot_state
-        robot_state.ee_trans = self.GetEndEffectorTransform()
+        robot_state.ee_trans = self.config.robot.arm.GetEndEffectorTransform()
         ee_trans = robot_state.ee_trans
-        robot_dof_values = self.robot.GetDOFValues()
+        robot_dof_values = self.config.robot.GetDOFValues()
 
         # if specified traj data for recording, initialize
         traj_data_recording = policy_config.traj_data_recording
@@ -180,14 +201,20 @@ class AdaHandler:
         vis = vistools.VisualizationHandler()
 
         def _do_update(evt):
-            user_input_all = user_input.get_user_command()
-            direct_teleop_action = self.user_input_mapper.input_to_action(
-                user_input_all, robot_state)
+            try:
+                user_input_all = user_input.get_user_command()
+                direct_teleop_action = self.user_input_mapper.input_to_action(
+                    user_input_all, robot_state)
+            except RuntimeError as e:
+                rospy.logwarn('Failed to get any input info: {}'.format(e))
+                user_input_all = None
+                direct_teleop_action = Action()                
+
 
             # update the policy
             self.robot_policy.update(robot_state, direct_teleop_action)
-            # if left trigger is being hit, bypass assistance
-            if user_input_all.button_changes[1] == 1:
+            # if left trigger is being hit (i.e. mode switch), bypass assistance
+            if user_input_all is not None and user_input_all.button_changes[0] == 1:
                 action = direct_teleop_action
             else:
                 action = policy.get_action(direct_teleop_action)
@@ -196,7 +223,7 @@ class AdaHandler:
 
             ### visualization ###
             vis.draw_probability_text(
-                self.goal_object_poses, self.robot_policy.goal_predictor.get_distribution())
+                self.config.goal_object_poses, self.robot_policy.goal_predictor.get_distribution())
 
             vis.draw_action_arrows(
                 ee_trans, direct_teleop_action.twist[0:3], action.twist[0:3]-direct_teleop_action.twist[0:3])
@@ -207,21 +234,21 @@ class AdaHandler:
                 traj_data_recording.add_datapoint(robot_state=copy.deepcopy(robot_state), robot_dof_values=copy.copy(robot_dof_values), user_input_all=copy.deepcopy(
                     user_input_all), direct_teleop_action=copy.deepcopy(direct_teleop_action), executed_action=copy.deepcopy(action), goal_distribution=self.robot_policy.goal_predictor.get_distribution())
 
-            if is_done_func(self.env, self.robot, user_input_all):
+            if policy_config.is_done_func(self.config.env, self.config.robot, user_input_all) or rospy.is_shutdown():
                 self._is_running = False
                 self.timer.shutdown()
 
         # set up timer callback
         self._is_running = True
         self.timer = rospy.Timer(rospy.Duration(
-            time_per_iter), self._do_update)
+            time_per_iter), _do_update)
         # spin till the callback ends
-        while self._is_running:
-            self.rospy.sleep(time_per_iter)
+        while self._is_running and not rospy.is_shutdown():
+            rospy.sleep(time_per_iter)
 
         # execute zero velocity to stop movement
         self.ada_teleop.execute_joint_velocities(
-            np.zeros(len(self.manip.GetDOFValues())))
+            np.zeros(len(self.config.robot.arm.GetDOFValues())))
 
         # set the intended goal and write data to file
         if traj_data_recording:
@@ -230,5 +257,5 @@ class AdaHandler:
                 intended_goal_ind=np.argmin(values))
             traj_data_recording.tofile()
 
-        if finish_trial_func:
-            finish_trial_func()
+        if policy_config.finish_trial_func is not None:
+            policy_config.finish_trial_func()

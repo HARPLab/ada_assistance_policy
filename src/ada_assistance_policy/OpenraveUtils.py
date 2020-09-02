@@ -52,15 +52,14 @@ def GetCylinderTSRs(radius, height, manip, T0_w = np.eye(4), Tw_e = np.eye(4), l
                         [ 0., -1.,  0., height], #glass_height
                         [ 0., 0.,  0., 1.]])
 
-
-    cylinderTSR1 = TSR(T0_w=T0_w, Tw_e=Tw_ee, Bw=Bw, manip=manipidx)
+    cylinderTSR1 = TSR(T0_w=T0_w, Tw_e=Tw_ee, Bw=Bw, manipindex=manipidx)
     #cylinder_tsrs.append(cylinderTSR1)
 
     Tw_ee = Tw_ee.copy()
     Tw_ee[:3,:3] = np.dot(Tw_ee[:3,:3], rodrigues([0., 0., np.pi]))
     #Tw_ee[:3,:3] = np.dot(Tw_ee[:3,:3],np.dot(rodrigues([-np.pi/2, 0, 0]), rodrigues([0, 0, np.pi/2.])))
     #Tw_ee[:3,3] = [0., radius, height]
-    cylinderTSR2 = TSR(T0_w=T0_w, Tw_e=Tw_ee, Bw=Bw, manip=manipidx)
+    cylinderTSR2 = TSR(T0_w=T0_w, Tw_e=Tw_ee, Bw=Bw, manipindex=manipidx)
     cylinder_tsrs.append(cylinderTSR2)
 
     return cylinder_tsrs

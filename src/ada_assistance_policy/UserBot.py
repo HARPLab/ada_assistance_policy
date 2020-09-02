@@ -1,11 +1,12 @@
 import numpy as np
 from Goal import *
 #from Robot import Robot
-from input_handlers.UserInputListener import UserInputData
+from ada_teleoperation.input_handlers.UserInputListener import UserInputData
+from ada_teleoperation.RobotState import Action
 import AssistancePolicyOneGoal
 
 class UserBot:
-    def __init__(self, goals, robot):
+    def __init__(self, goals, robot, robot_state):
         self.goals = goals
         self.goal_num = 0
 
@@ -19,6 +20,7 @@ class UserBot:
         # Use the goal policies to figure out our actual target
         self.goal_policies = [ AssistancePolicyOneGoal.AssistancePolicyOneGoal(g) for g in goals ]
         self.robot = robot
+        self.robot_state = robot_state
 
     def set_user_goal(self, goal_num):
 #        num_goals = self.robot.world.num_goals();
@@ -32,10 +34,12 @@ class UserBot:
         # note that we don't care about the applied user action
         # since we only need V not Q
         # to pick the best target
-        ee_trans = self.robot.arm.getEndEffectorTransform()
-        self.goal_policies[self.goal_num].update(ee_trans, np.zeros((6, 1)))
+        ee_trans = self.robot.arm.GetEndEffectorTransform()
+        self.goal_policies[self.goal_num].update(self.robot_state, Action())
         goal_pose = self.goal_policies[self.goal_num].get_min_value_pose()
         cmd = UserInputData(self.get_usr_cmd(ee_trans, goal_pose))
+        cmd.button_changes = [0] # spoof the buttons for the end trial function
+        cmd.buttons_held = [0]
         if self.goals[self.goal_num].at_goal(ee_trans):
             cmd.close_hand_velocity = 1.0 # Pretty sure this is incorrect but it's how it was in the original.....
         else:
