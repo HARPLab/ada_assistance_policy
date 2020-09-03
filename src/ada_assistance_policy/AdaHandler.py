@@ -34,13 +34,12 @@ from GazeBasedPredictor import load_gaze_predictor_from_params
 CONTROL_HZ = 40.
 
 
-ROBOT_OPTS = ['env', 'robot']
 GOAL_OPTS = ['goals', 'goal_objects', 'goal_object_poses']
 INPUT_OPTS = ['input_interface_name', 'num_input_dofs',
               'use_finger_mode']
 
 
-class AdaHandlerConfig(namedtuple('AdaHandlerConfig', ROBOT_OPTS + GOAL_OPTS + INPUT_OPTS)):
+class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS)):
 
     @classmethod
     def create(cls, *args, **kwargs):
@@ -56,24 +55,11 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', ROBOT_OPTS + GOAL_OPTS + I
         config = cls(**kwargs)
 
         # Validation of various stuff goes here!
-        config._cache = {}
-
         return config
 
-    def get_user_input(self, sim=False):
-        if sim:
-            return UserBot(self.goals, self.robot, self.get_teleop_handler().robot_state)
-        else:
-            return self.get_teleop_handler()
-
-    def get_teleop_handler(self):
-        # cache this so we can return a copy for user input if appropriate
-        if 'teleop_handler' not in self._cache:
-            self._cache['teleop_handler'] = AdaTeleopHandler(
-                self.env, self.robot, self.input_interface_name, self.num_input_dofs, self.use_finger_mode)
-        return self._cache['teleop_handler']
-
-
+    def get_teleop_handler(self, env, robot):
+        return AdaTeleopHandler(
+            env, robot, self.input_interface_name, self.num_input_dofs, self.use_finger_mode)
 
 
 POLICY_OPTS = ['direct_teleop_only',
@@ -105,14 +91,14 @@ class PolicyConfig(namedtuple('PolicyConfig', POLICY_OPTS + TRIAL_OPTS + OUTPUT_
 
         config = cls(**vals)
 
-        config._cache = {}
-
         return config
 
-    def get_goal_predictor(self, goals):
+    def get_goal_predictor(self, goals, rl_policy=None):
         predictors = []
         if self.predict_policy:
-            predictors.append(GoalPredictor(self.get_rl_policy(goals)))
+            if rl_policy is None:
+                raise ValueError('PolicyBasedGoalPredictor requested but no rl_policy provided')
+            predictors.append(PolicyBasedGoalPredictor(rl_policy))
         if self.predict_gaze:
             predictors.append(load_gaze_predictor_from_params())
         
@@ -124,18 +110,14 @@ class PolicyConfig(namedtuple('PolicyConfig', POLICY_OPTS + TRIAL_OPTS + OUTPUT_
             raise RuntimeError("no prediction strategy specified!")
 
     def get_rl_policy(self, goals):
-        # cache for repeated access to same object
-        # for probability creation
-        if 'rl_policy' not in self._cache:
-            rl_policy = AssistancePolicy(goals)
-            if self.fix_magnitude_user_command:
-                # update the constants appropriately
-                for goal_policy in rl_policy.goal_assist_policies:
-                    for target_policy in goal_policy.target_assist_policies:
-                        target_policy.set_constants(
-                            **FixMagnitudeSharedAutonPolicy.__HUBER_CONSTS__)
-            self._cache['rl_policy'] = rl_policy
-        return self._cache['rl_policy']
+        rl_policy = AssistancePolicy(goals)
+        if self.fix_magnitude_user_command:
+            # update the constants appropriately
+            for goal_policy in rl_policy.goal_assist_policies:
+                for target_policy in goal_policy.target_assist_policies:
+                    target_policy.set_constants(
+                        **FixMagnitudeSharedAutonPolicy.__HUBER_CONSTS__)
+        return rl_policy
 
     def get_assistance_policy(self):
         if self.direct_teleop_only:
@@ -147,11 +129,20 @@ class PolicyConfig(namedtuple('PolicyConfig', POLICY_OPTS + TRIAL_OPTS + OUTPUT_
         else:
             return SharedAutonPolicy(self.transition_function)
 
+    def get_user_input(self, teleop_handler, robot, goals):
+        if self.simulate_user:
+            return UserBot(goals, robot, teleop_handler.robot_state)
+        else:
+            return teleop_handler
+
 
 class AdaHandler:
-    def __init__(self, config):
+    def __init__(self, env, robot, config):
         self.config = config
-        self.ada_teleop = config.get_teleop_handler()
+        self.env = env
+        self.robot = robot
+        self.goals = config.goals
+        self.ada_teleop = config.get_teleop_handler(env, robot)
         self.user_input_mapper = self.ada_teleop.user_input_mapper
 
     def execute_policy(self, policy_config):
@@ -160,10 +151,11 @@ class AdaHandler:
         time_per_iter = 1./CONTROL_HZ
 
         # load in the objects for executing the policy
-        user_input = self.config.get_user_input(policy_config.simulate_user)
-        rl_policy = policy_config.get_rl_policy(self.config.goals)
-        goal_predictor = policy_config.get_goal_predictor(self.config.goals)
-        assistance_policy = policy_config.get_assistance_policy(self.robot_policy)
+        user_input = policy_config.get_user_input(self.ada_teleop,
+            self.robot, self.goals)
+        rl_policy = policy_config.get_rl_policy(self.goals)
+        goal_predictor = policy_config.get_goal_predictor(self.goals, rl_policy)
+        assistance_policy = policy_config.get_assistance_policy()
 
         robot_state = self.ada_teleop.robot_state
 
@@ -172,15 +164,15 @@ class AdaHandler:
         if traj_data_recording is not None:
             traj_data_recording.set_init_info(
                 start_state=copy.deepcopy(robot_state),
-                goals=copy.deepcopy(self.config.goals),
+                goals=copy.deepcopy(self.goals),
                 input_interface_name=self.ada_teleop.teleop_interface,
                 assist_type=policy.assist_type)
         vis = vistools.VisualizationHandler()
 
         def _do_update(evt):
             # update the robot state to match the actual robot position
-            robot_state.ee_trans = self.config.robot.arm.GetEndEffectorTransform()
-            ee_trans = robot_state.ee_trans
+            # TODO: move this somewhere less terrible
+            robot_state.ee_trans = self.robot.arm.GetEndEffectorTransform()
 
             # get the user input
             try:
@@ -206,22 +198,22 @@ class AdaHandler:
                 action = direct_teleop_action
             else:
                 # defer to the assistance policy object to determine the appropriate fused action
-                action = policy.get_action(
-                    robot_state, direct_teleop_action, config.goals, goal_distribution, rl_policy.get_robot_actions())
+                action = assistance_policy.get_action(
+                    robot_state, direct_teleop_action, self.goals, goal_distribution, rl_policy.get_robot_actions())
 
             # execute robot action
             self.ada_teleop.ExecuteAction(action)    
 
             ### visualization ###
             vis.draw_probability_text(
-                self.config.goal_object_poses, self.robot_policy.goal_predictor.get_distribution())
+                self.config.goal_object_poses, goal_distribution)
 
             vis.draw_action_arrows(
-                ee_trans, direct_teleop_action.twist[0:3], action.twist[0:3]-direct_teleop_action.twist[0:3])
+                robot_state.ee_trans, direct_teleop_action.twist[0:3], action.twist[0:3]-direct_teleop_action.twist[0:3])
 
             ### logging ###
             if traj_data_recording:
-                robot_dof_values = self.config.robot.GetDOFValues()
+                robot_dof_values = self.robot.GetDOFValues()
                 traj_data_recording.add_datapoint(
                     robot_state = copy.deepcopy(robot_state), 
                     robot_dof_values = copy.copy(robot_dof_values), 
@@ -231,7 +223,7 @@ class AdaHandler:
                     goal_distribution = goal_distribution)
 
             ### check if we're still running or not ###
-            if policy_config.is_done_func(self.config.env, self.config.robot, user_input_all) or rospy.is_shutdown():
+            if policy_config.is_done_func(self.env, self.robot, user_input_all) or rospy.is_shutdown():
                 self._is_running = False
                 self.timer.shutdown()
 
@@ -245,11 +237,11 @@ class AdaHandler:
 
         # execute zero velocity to stop movement
         self.ada_teleop.execute_joint_velocities(
-            np.zeros(len(self.config.robot.arm.GetDOFValues())))
+            np.zeros(len(self.robot.arm.GetDOFValues())))
 
         # set the intended goal and write data to file
         if traj_data_recording:
-            values, qvalues = self.robot_policy.assist_policy.get_values()
+            values, qvalues = rl_policy.get_values()
             traj_data_recording.set_end_info(
                 intended_goal_ind=np.argmin(values))
             traj_data_recording.tofile()

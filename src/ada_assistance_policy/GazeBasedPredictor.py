@@ -73,7 +73,7 @@ def load_gaze_predictor_from_params():
     labeled_gaze_topic = rospy.get_param('~labeled_gaze_topic', '/semantic_gaze_labeler/output')
 
     # none -> none, [mico_link_x] -> robot, [ee|fork] -> ee, morsels separate
-    default_remap = np.array([0,1,1,1,1,1,1,1,2,2,3,4,5]
+    default_remap = np.array([0,1,1,1,1,1,1,1,2,2,3,4,5])
     default_goal_remaps = [ np.range(6) ] * 3
     for i, r in enumerate(default_goal_remaps):
         r[r >= 3 & r != 3+i] = 4 # remap incorrect labels -> 4

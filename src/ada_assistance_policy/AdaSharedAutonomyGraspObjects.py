@@ -224,8 +224,8 @@ if __name__ == "__main__":
   for i in range(1):
     Reset_Robot(robot)
     goals, goal_objects = Initialize_Goals(env, robot, randomize_goal_init=False)
-    ada_handler = AdaHandler(AdaHandlerConfig.create(
-        env=env, robot=robot, goals=goals, goal_objects=goal_objects, input_interface_name=args.input_interface_name, num_input_dofs=args.num_input_dofs, use_finger_mode=False))
+    ada_handler = AdaHandler(env, robot, AdaHandlerConfig.create(
+        goals=goals, goal_objects=goal_objects, input_interface_name=args.input_interface_name, num_input_dofs=args.num_input_dofs, use_finger_mode=False))
     ada_handler.execute_policy(PolicyConfig.create(
         simulate_user=args.user_sim, direct_teleop_only=True, fix_magnitude_user_command=False, finish_trial_func=finish_trial_func_withrobot))
   #ada_handler.execute_direct_teleop(simulate_user=False)
