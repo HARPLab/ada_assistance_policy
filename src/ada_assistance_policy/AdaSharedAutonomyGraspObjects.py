@@ -8,6 +8,8 @@ from AdaAssistancePolicy import goal_from_object
 import rospy
 import rospkg
 import IPython
+import argparse
+import os
 
 import numpy as np
 

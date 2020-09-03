@@ -103,6 +103,16 @@ class FixMagnitudeSharedAutonPolicy(SharedAutonPolicy):
         return action
 
 
+def get_assistance_policy(direct_teleop_only, blend_only, fix_magnitude_user_command, transition_function):
+    if direct_teleop_only:
+        return DirectTeleopPolicy()
+    elif blend_only:
+        return BlendPolicy()
+    elif fix_magnitude_user_command:
+        return FixMagnitudeSharedAutonPolicy(transition_function)
+    else:
+        return SharedAutonPolicy(transition_function)
+
 #generic functions
 def goal_from_object(object, manip):
   pose = object.GetTransform()
