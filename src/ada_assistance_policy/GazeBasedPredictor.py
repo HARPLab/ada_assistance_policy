@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import hmmlearn
+import hmmlearn.hmm
 import numpy as np
 from scipy.misc import logsumexp
 import rospy
@@ -74,17 +74,20 @@ def load_gaze_predictor_from_params():
 
     # none -> none, [mico_link_x] -> robot, [ee|fork] -> ee, morsels separate
     default_remap = np.array([0,1,1,1,1,1,1,1,2,2,3,4,5])
-    default_goal_remaps = [ np.range(6) ] * 3
+    default_goal_remaps = [ np.arange(6) ] * 3
     for i, r in enumerate(default_goal_remaps):
-        r[r >= 3 & r != 3+i] = 4 # remap incorrect labels -> 4
+        r[np.logical_and(r >= 3, r != 3+i)] = 4 # remap incorrect labels -> 4
         r[3+i] = 3 # remap correct -> 3
 
-    label_remap = rospy.get_param('~label_remap', default_remap)
-    goal_remaps = rospy.get_param('~goal_remaps', default_goal_remaps)
+    # get_param doesn't like np.array for lists
+    # but we like the logical indexing above
+    # so unwrap and rewrap in np.array
+    label_remap = np.array(rospy.get_param('~label_remap', default_remap.tolist()))
+    goal_remaps = np.array(rospy.get_param('~goal_remaps', [r.tolist() for r in default_goal_remaps] ))
 
-    p_prior = np.array( [] ).reshape((-1, 1))
-    p_trans = np.array( [] )
-    p_emiss = np.array( [] ).reshape((-1, 1))
+    p_prior = np.array( [1, 0, 0] ).reshape((-1, 1))
+    p_trans = np.array( [[1, 0, 0], [0, 1, 0], [0, 0, 1]] )
+    p_emiss = np.array( [[0.4, 0.3, 0.3, 0, 0], [0., 0., 0., 1., 0.], [0., 0., 0., 0., 1.]] ).reshape((-1, 1))
 
     return GazeBasedPredictorWrapper(labeled_gaze_topic, 
         label_remap=label_remap, goal_remaps=goal_remaps,
