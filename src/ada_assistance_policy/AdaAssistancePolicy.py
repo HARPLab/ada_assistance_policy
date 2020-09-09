@@ -78,7 +78,7 @@ class SharedAutonPolicy:
                     finger_vel=direct_action.finger_vel,
                     switch_mode_to=direct_action.switch_mode_to)
 
-class FixMagnitudeSharedAutonPolicy(SharedAutonPolicy):
+class FixMagnitudeSharedAutonPolicy:
     __HUBER_CONSTS__ = {
         'huber_translation_linear_multiplier': 1.55,
         'huber_translation_delta_switch': 0.11,
@@ -92,11 +92,11 @@ class FixMagnitudeSharedAutonPolicy(SharedAutonPolicy):
     }
 
     def __init__(self, robot_policy, transition_function, *args, **kwargs):
-        super(FixMagnitudeSharedAutonPolicy, self).__init__(robot_policy, transition_function, *args, **kwargs)
+        self.shared_auton_policy = SharedAutonPolicy(transition_function)
         self.assist_type = 'shared_auton_prop'
 
     def get_action(self, robot_state, direct_action, goals, goal_distribution, twist_candidates):
-        action = super(FixMagnitudeSharedAutonPolicy, self).get_action(
+        action = self.shared_auton_policy.get_action(
             self, robot_state, direct_action, goals, goal_distribution, twist_candidates)
         # fix the magnitude as requested
         action.twist *= np.linalg.norm(direct_action.twist) / np.linalg.norm(action.twist)
