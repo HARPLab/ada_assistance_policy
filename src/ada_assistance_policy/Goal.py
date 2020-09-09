@@ -12,7 +12,7 @@ from Utils import *
 
 class Goal: 
     
-    def __init__(self, pose, target_poses = list(), target_iks = list()):
+    def __init__(self, pose, target_poses = list(), target_iks = list(), overlay_pose = None):
       self.pose = pose
       self.pos = pose[0:3,3]
 
@@ -25,7 +25,7 @@ class Goal:
 
       self.compute_quaternions_from_target_poses()
 
-      #print 'NUM POSES: ' + str(len(self.target_poses))
+      self.overlay_pose = overlay_pose or pose
 
     def compute_quaternions_from_target_poses(self):
       self.target_quaternions = [transmethods.quaternion_from_matrix(target_pose) for target_pose in self.target_poses]
