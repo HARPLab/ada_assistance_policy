@@ -67,11 +67,11 @@ class SharedAutonPolicy:
         total_action_twist = np.zeros(GoalPolicy.TargetPolicy.ACTION_DIMENSION)
 
         # take the expected robot action over the candidates
-        for goal_action, goal_prob in zip(action_candidates, goal_distribution):
+        for goal_action, goal_prob in zip(twist_candidates, goal_distribution):
             total_action_twist += goal_prob * goal_action
         total_action_twist /= np.sum(goal_distribution)
 
-        to_ret_twist = transition_function(
+        to_ret_twist = self.transition_function(
             total_action_twist, direct_action.twist)  # a + u from paper
 
         return Action(twist=to_ret_twist,
