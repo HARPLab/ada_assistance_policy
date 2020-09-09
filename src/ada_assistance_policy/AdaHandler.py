@@ -2,6 +2,7 @@ import numpy as np
 import tf
 import rospy
 from collections import namedtuple
+import traceback
 
 from adapy.futures import Future
 from ada_teleoperation.AdaTeleopHandler import AdaTeleopHandler, Is_Done_Func_Button_Hold
@@ -225,6 +226,9 @@ class AdaHandler(Future):
                 else:
                     self.set_result(None)
         except Exception as e:
+            traceback.print_exc()
+            # make sure to clean up
+            self._finalize()
             # transfer the exception to the main thread
             self.set_exception(e)
     
