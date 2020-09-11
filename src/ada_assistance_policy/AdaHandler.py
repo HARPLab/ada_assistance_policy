@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 import tf
 import rospy
@@ -15,8 +16,9 @@ import AssistancePolicyVisualizationTools as vistools
 from DataRecordingUtils import TrajectoryData
 from AssistancePolicy import AssistancePolicy
 
+logger = logging.getLogger('ada_assistance_policy')
 
-CONTROL_HZ = 40.
+CONTROL_HZ = 20. # DROPPED FROM 40 SO GUI CAN GET A CHANCE TO DO THINGS
 
 
 GOAL_OPTS = ['goals']
@@ -25,7 +27,7 @@ INPUT_OPTS = ['input_interface_name', 'num_input_dofs',
 POLICY_OPTS = ['direct_teleop_only',
                'blend_only', 'fix_magnitude_user_command', 'transition_function']
 TRIAL_OPTS = ['simulate_user']
-OUTPUT_OPTS = ['traj_data_recording']
+OUTPUT_OPTS = ['log_dir']
 PREDICTION_OPTS = ['predict_policy', 'predict_gaze', 'pick_goal']
 
 class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + POLICY_OPTS + TRIAL_OPTS + OUTPUT_OPTS + PREDICTION_OPTS)):
@@ -38,7 +40,7 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + P
         'fix_magnitude_user_command': False,
         'transition_function': lambda x, y: x+y,
         'simulate_user': False,
-        'traj_data_recording': None,
+        'log_dir': None,
         'predict_policy': True,
         'predict_gaze': False,
         'pick_goal': False
@@ -128,7 +130,7 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + P
 
 
 class AdaHandler(Future):
-    def __init__(self, env, robot, config):
+    def __init__(self, env, robot, config, loggers): # TODO(rma): clean up multiple configs (probably by moving ada_meal_scenario.assistance.assistance_config into this package)
         super(AdaHandler, self).__init__()
 
         # load in the variables from the configs
@@ -146,13 +148,19 @@ class AdaHandler(Future):
         self.goal_predictor = config.get_goal_predictor(
             self.goals, self.rl_policy)
 
-        self.traj_data_recording = config.traj_data_recording
-        if self.traj_data_recording is not None:
-            traj_data_recording.set_init_info(
-                start_state=copy.deepcopy(self.ada_teleop.robot_state),
-                goals=copy.deepcopy(self.goals),
-                input_interface_name=self.ada_teleop.teleop_interface,
-                assist_type=self.assistance_policy.assist_type)
+        # logging variables
+        self.loggers = loggers
+        for logger in self.loggers:
+            logger.start()
+
+
+        # self.traj_data_recording = config.traj_data_recording
+        # if self.traj_data_recording is not None:
+        #     traj_data_recording.set_init_info(
+        #         start_state=copy.deepcopy(self.ada_teleop.robot_state),
+        #         goals=copy.deepcopy(self.goals),
+        #         input_interface_name=self.ada_teleop.teleop_interface,
+        #         assist_type=self.assistance_policy.assist_type)
         self.vis = vistools.VisualizationHandler()
         self.is_done_func = config.get_is_done_fn()
 
@@ -162,9 +170,15 @@ class AdaHandler(Future):
             1./CONTROL_HZ), self._do_update)
 
     def cancel(self):
+        logger.debug('cancel requested')
         self._cancel_requested = True
 
     def _do_update(self, evt):
+        # see if we were cancelled before we do anything
+        if self._cancel_requested:
+            self._finalize()
+            self.set_cancelled()
+
         try:
             # update the robot state to match the actual robot position
             # TODO: move this somewhere less terrible
@@ -208,15 +222,15 @@ class AdaHandler(Future):
                 robot_state.ee_trans, direct_teleop_action.twist[0:3], action.twist[0:3]-direct_teleop_action.twist[0:3])
 
             ### logging ###
-            if self.traj_data_recording:
-                robot_dof_values = self.robot.GetDOFValues()
-                self.traj_data_recording.add_datapoint(
-                    robot_state=copy.deepcopy(robot_state),
-                    robot_dof_values=copy.copy(robot_dof_values),
-                    user_input_all=copy.deepcopy(user_input_all),
-                    direct_teleop_action=copy.deepcopy(direct_teleop_action),
-                    executed_action=copy.deepcopy(action),
-                    goal_distribution=goal_distribution)
+            # if self.traj_data_recording:
+            #     robot_dof_values = self.robot.GetDOFValues()
+            #     self.traj_data_recording.add_datapoint(
+            #         robot_state=copy.deepcopy(robot_state),
+            #         robot_dof_values=copy.copy(robot_dof_values),
+            #         user_input_all=copy.deepcopy(user_input_all),
+            #         direct_teleop_action=copy.deepcopy(direct_teleop_action),
+            #         executed_action=copy.deepcopy(action),
+            #         goal_distribution=goal_distribution)
 
             ### check if we're still running or not ###
             if self._cancel_requested or self.is_done_func(self.env, self.robot, user_input_all):
@@ -239,9 +253,11 @@ class AdaHandler(Future):
         self.ada_teleop.execute_joint_velocities(
             np.zeros(len(self.robot.arm.GetDOFValues())))
 
-        # set the intended goal and write data to file
-        if self.traj_data_recording is not None:
-            values, qvalues = self.rl_policy.get_values()
-            self.traj_data_recording.set_end_info(
-                intended_goal_ind=np.argmin(values))
-            self.traj_data_recording.tofile()
+        # stop all loggers
+        for logger in self.loggers:
+            logger.stop()
+        # if self.traj_data_recording is not None:
+        #     values, qvalues = self.rl_policy.get_values()
+        #     self.traj_data_recording.set_end_info(
+        #         intended_goal_ind=np.argmin(values))
+        #     self.traj_data_recording.tofile()
