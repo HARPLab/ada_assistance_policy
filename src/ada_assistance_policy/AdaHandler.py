@@ -191,7 +191,7 @@ class AdaHandler(Future):
                 direct_teleop_action = self.user_input_mapper.input_to_action(
                     user_input_all, robot_state)
             except RuntimeError as e:
-                rospy.logwarn('Failed to get any input info: {}'.format(e))
+                rospy.logwarn_throttle(5, 'Failed to get input info: {}'.format(e))
                 user_input_all = None
                 direct_teleop_action = Action()
 
