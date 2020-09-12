@@ -34,12 +34,12 @@ class MergedGoalPredictor:
         self.predictors = predictors
         self.weights = weights if weights is not None else np.ones( (len(predictors)) )
     
-    def update():
+    def update(self):
         # just pass on to underlying functions
         for pred in self.predictors:
             pred.update()
 
-    def get_log_distribution():
+    def get_log_distribution(self):
         sub_log_distribs = np.array(
             [pred.get_log_distribution() for pred in self.predictors])
         log_distribs = np.dot(self.weights, sub_log_distribs)
