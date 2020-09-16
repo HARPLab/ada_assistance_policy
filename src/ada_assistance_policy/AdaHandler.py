@@ -1,9 +1,12 @@
+import csv
 import logging
 import numpy as np
+import os
 import tf
 import rospy
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 import traceback
+import yaml
 
 from adapy.futures import Future
 from ada_teleoperation.AdaTeleopHandler import AdaTeleopHandler, Is_Done_Func_Button_Hold
@@ -129,6 +132,9 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + P
             return teleop_handler
 
 
+def _array_to_str(arr):
+    return np.array2string(arr, precision=6).replace('\n', '')
+
 class AdaHandler(Future):
     def __init__(self, env, robot, config, loggers): # TODO(rma): clean up multiple configs (probably by moving ada_meal_scenario.assistance.assistance_config into this package)
         super(AdaHandler, self).__init__()
@@ -153,14 +159,21 @@ class AdaHandler(Future):
         for logger in self.loggers:
             logger.start()
 
+        # log the initial data
+        if config.log_dir is not None:
+            data = { 
+                'goals': {g.name: g.pose.tolist() for g in self.goals },
+                'assistance_type': self.assistance_policy.assist_type,
+                'goal_predictor': self.goal_predictor.get_config()
+            }
+            with open(os.path.join(config.log_dir, 'assistance_init.yaml'), 'w') as f:
+                yaml.safe_dump(data, f)
 
-        # self.traj_data_recording = config.traj_data_recording
-        # if self.traj_data_recording is not None:
-        #     traj_data_recording.set_init_info(
-        #         start_state=copy.deepcopy(self.ada_teleop.robot_state),
-        #         goals=copy.deepcopy(self.goals),
-        #         input_interface_name=self.ada_teleop.teleop_interface,
-        #         assist_type=self.assistance_policy.assist_type)
+            self._log_file = open(os.path.join(config.log_dir, 'assistance_data.csv'), 'w')
+            self._logger = None  # lazily init so we can get the field names
+        else:
+            self._log_file = None
+
         self.vis = vistools.VisualizationHandler()
         self.is_done_func = config.get_is_done_fn()
 
@@ -201,7 +214,11 @@ class AdaHandler(Future):
             # must be AFTER rl_policy.update()
             # since if we're using policy-based prediction, we're using the SAME policy object
             # both here to generate candidate actions and in the goal predictor
-            goal_distribution = self.goal_predictor.get_distribution()
+            # 
+            # Also, make sure to get the log in the SAME function call
+            # so that we are sure the data doesn't change between getting the dist and getting the log
+            # (e.g. a new gaze data point comes in on a different thread)
+            goal_distribution, goal_log = self.goal_predictor.get_distribution(get_log=True)
 
             # if left trigger is being hit (i.e. mode switch), bypass assistance
             if user_input_all is not None and user_input_all.button_changes[0] == 1:
@@ -222,15 +239,26 @@ class AdaHandler(Future):
                 robot_state.ee_trans, direct_teleop_action.twist[0:3], action.twist[0:3]-direct_teleop_action.twist[0:3])
 
             ### logging ###
-            # if self.traj_data_recording:
-            #     robot_dof_values = self.robot.GetDOFValues()
-            #     self.traj_data_recording.add_datapoint(
-            #         robot_state=copy.deepcopy(robot_state),
-            #         robot_dof_values=copy.copy(robot_dof_values),
-            #         user_input_all=copy.deepcopy(user_input_all),
-            #         direct_teleop_action=copy.deepcopy(direct_teleop_action),
-            #         executed_action=copy.deepcopy(action),
-            #         goal_distribution=goal_distribution)
+            if self._log_file is not None:
+                # collect the data we want to log
+                # TODO: is it too slow to log directly to disk, or does autobuffering work well enough? Could store all
+                # of this and save to disk in finalize(), but then (1) [tiny] memory usage (2) if it crashes we lose partial data
+                data = OrderedDict()
+                data['timestamp'] = evt.current_real.to_sec()
+                data['robot_dofs'] = _array_to_str(self.robot.GetDOFValues())
+                data['robot_ee_trans'] = _array_to_str(robot_state.ee_trans)
+                data.update({ 'input_{}'.format(k):v for k,v in user_input_all.as_dict().items() })
+                data.update({ 'direct_teleop_{}'.format(k):v for k,v in direct_teleop_action.as_dict().items() })
+                data.update({ 'p_goal_{}'.format(i): _array_to_str(v) for i, v in enumerate(goal_distribution)})
+                data.update({ 'goal_{}'.format(k): v for k, v in goal_log.items() })
+                data.update({ 'executed_action_{}'.format(k):v for k,v in action.as_dict().items() })
+
+                # see if we need to initialize the logger
+                if self._logger is None:
+                    self._logger = csv.DictWriter(self._log_file, data.keys())
+                    self._logger.writeheader()
+                
+                self._logger.writerow(data)
 
             ### check if we're still running or not ###
             if self._cancel_requested or self.is_done_func(self.env, self.robot, user_input_all):
@@ -256,8 +284,7 @@ class AdaHandler(Future):
         # stop all loggers
         for logger in self.loggers:
             logger.stop()
-        # if self.traj_data_recording is not None:
-        #     values, qvalues = self.rl_policy.get_values()
-        #     self.traj_data_recording.set_end_info(
-        #         intended_goal_ind=np.argmin(values))
-        #     self.traj_data_recording.tofile()
+       
+        # clean up internal logger
+        if self._log_file is not None:
+            self._log_file.close()

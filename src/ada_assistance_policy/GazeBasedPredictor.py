@@ -4,6 +4,8 @@ import hmmlearn.hmm
 import numpy as np
 from scipy.misc import logsumexp
 import rospy
+import threading
+
 from semantic_gaze_labeling.msg import LabeledFixationDataPoint
 from GoalPredictor import normalize_and_clip
 
@@ -19,12 +21,14 @@ class GazeBasedPredictor:
         self.model.startprob_ = p_prior
         self.model.transmat_ = p_trans
         self.model.emissionprob_ = p_emiss
+        self._lock = threading.RLock()
 
         self.reset()
 
     def process_message(self, label, duration):
-        self._update_seq_with_label(label, duration)
-        self._update_prob_for_seq()
+        with self._lock:
+            self._update_seq_with_label(label, duration)
+            self._update_prob_for_seq()
 
     def reset(self):
         self._seq = []
@@ -43,14 +47,27 @@ class GazeBasedPredictor:
         raw_log_prob = [ self.model.score( np.reshape(remap[self._seq], (-1, 1)) ) for remap in self.goal_remaps ]
         self._log_prob = normalize_and_clip(raw_log_prob)
 
-    def get_log_distribution(self):
-        return self._log_prob
+    def get_log_distribution(self, get_log=False):
+        with self._lock:  # technically it's only assignment that crosses thread bounds so it should be ok
+                          # but use a lock so we can e.g. log info about the sequence at the time of prob retrieval
+            if get_log:
+                return self._log_prob, {'n_seq': len(self._seq)}
+            else:
+                return self._log_prob
+
+    def get_config(self):
+        return { 
+            'startprob': self.model.startprob_.tolist(),
+            'transmat': self.model.transmat_.tolist(),
+            'emissionprob': self.model.emissionprob_.tolist()
+        }
 
 
 class GazeBasedPredictorWrapper:
     def __init__(self, labeled_gaze_topic, *args, **kwargs):
         self.predictor = GazeBasedPredictor(*args, **kwargs)
         self.sub = rospy.Subscriber(labeled_gaze_topic, LabeledFixationDataPoint, self.labeled_fix_callback)
+        self.type = 'gaze'
 
     def labeled_fix_callback(self, msg):
         # Do we need to guarantee that we receive these in sequence order or something?
@@ -62,11 +79,22 @@ class GazeBasedPredictorWrapper:
         # so don't do anything
         pass
 
-    def get_log_distribution(self):
-        return self.predictor.get_log_distribution()
+    def get_log_distribution(self, get_log=False):
+        return self.predictor.get_log_distribution(get_log)
 
-    def get_distribution(self):
-        return np.exp(self.get_log_distribution())
+    def get_distribution(self, get_log=False):
+        if get_log:
+            log_dist, log = self.get_log_distribution(True)
+            return np.exp(log_dist), log
+        else:
+            return np.exp(self.get_log_distribution(False))
+
+    def get_config(self):
+        cfg = { 
+            'type': self.type,
+        }
+        cfg.update(self.predictor.get_config())
+        return cfg
 
 
 def load_gaze_predictor_from_params():
