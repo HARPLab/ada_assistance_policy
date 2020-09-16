@@ -12,7 +12,8 @@ from Utils import *
 
 class Goal: 
     
-    def __init__(self, pose, target_poses = list(), target_iks = list(), overlay_pose = None):
+    def __init__(self, name, pose, target_poses = list(), target_iks = list(), overlay_pose = None):
+      self.name = name
       self.pose = pose
       self.pos = pose[0:3,3]
 
