@@ -1,8 +1,11 @@
 import numpy as np
-import scipy.misc
 import IPython
 
-logsumexp = scipy.misc.logsumexp
+# handle different scipy apis
+try:
+    from scipy.misc import logsumexp
+except ImportError:
+    from scipy.special import logsumexp
 
 class PolicyBasedGoalPredictor:
   def __init__(self, rl_policy):

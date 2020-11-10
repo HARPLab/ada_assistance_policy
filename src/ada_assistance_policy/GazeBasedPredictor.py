@@ -2,12 +2,43 @@
 
 import hmmlearn.hmm
 import numpy as np
-from scipy.misc import logsumexp
-import rospy
+try:
+    import rospy
+    from semantic_gaze_labeling.msg import LabeledFixationDataPoint
+except ImportError:
+    rospy = None
+    LabeledFixationDataPoint = None
 import threading
 
-from semantic_gaze_labeling.msg import LabeledFixationDataPoint
-from GoalPredictor import normalize_and_clip
+from ada_assistance_policy.GoalPredictor import normalize_and_clip
+
+class SequenceProcessor:
+    def __init__(self, label_remap, goal_remaps, dt, nmax):
+        self.label_remap = label_remap
+        self.goal_remaps = goal_remaps
+        self.dt = dt
+        self.nmax = nmax
+
+    def process_item(self, duration, label, goal):
+        ct = max(min( int(duration/GazeBasedPredictor.DT), GazeBasedPredictor.NMAX), 1)
+        lbl = self.goal_remaps[goal][self.label_remap[label]]
+        return [lbl] * ct
+
+    def process(self, seq, goal):
+        return sum((self.process_item(*item, goal=goal) for item in seq), [])
+
+    def get_prob(self, seq, model):
+        processed_seq = [ self.process(seq, goal) for goal in range(len(self.goal_remaps)) ]
+        scores = np.array([ model.score(np.array(seq).reshape(-1, 1)) for seq in processed_seq ])
+        return normalize_and_clip(scores)
+
+    def fit(self, seqs, model):
+        processed_seqs = [ self.process(seq, goal) for seq, goal in seqs ]
+        x, lengths = np.reshape(np.concatenate(processed_seqs), (-1, 1)), [ len(s) for s in processed_seqs ]
+        model.fit(x, lengths)
+        return model
+
+        
 
 class GazeBasedPredictor:
     DT = 150 # CHECK THESE
@@ -104,7 +135,7 @@ def load_gaze_predictor_from_params():
     default_remap = np.array([0,1,1,1,1,1,1,1,2,2,3,4,5])
     default_goal_remaps = [ np.arange(6) ] * 3
     for i, r in enumerate(default_goal_remaps):
-        r[np.logical_and(r >= 3, r != 3+i)] = 4 # remap incorrect labels -> 4
+        r[r >= 3] = 4 # remap incorrect labels -> 4
         r[3+i] = 3 # remap correct -> 3
 
     # get_param doesn't like np.array for lists
