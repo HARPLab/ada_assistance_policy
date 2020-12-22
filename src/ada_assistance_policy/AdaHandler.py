@@ -10,8 +10,9 @@ import yaml
 
 from adapy.futures import Future
 from ada_teleoperation.AdaTeleopHandler import AdaTeleopHandler, Is_Done_Func_Button_Hold
+from ada_teleoperation.UserInputMapper import get_profile
 from ada_teleoperation.RobotState import Action
-from GoalPredictor import PolicyBasedGoalPredictor, MergedGoalPredictor
+from GoalPredictor import PolicyBasedGoalPredictor, MergedGoalPredictor, FixedGoalPredictor
 from GazeBasedPredictor import load_gaze_predictor_from_params
 from AdaAssistancePolicy import get_assistance_policy
 from UserBot import UserBot
@@ -25,8 +26,7 @@ CONTROL_HZ = 20. # DROPPED FROM 40 SO GUI CAN GET A CHANCE TO DO THINGS
 
 
 GOAL_OPTS = ['goals']
-INPUT_OPTS = ['input_interface_name', 'num_input_dofs',
-              'use_finger_mode']
+INPUT_OPTS = ['input_interface_name', 'input_profile_name']
 POLICY_OPTS = ['direct_teleop_only',
                'blend_only', 'fix_magnitude_user_command', 'transition_function']
 TRIAL_OPTS = ['simulate_user']
@@ -36,8 +36,7 @@ PREDICTION_OPTS = ['predict_policy', 'predict_gaze', 'pick_goal']
 class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + POLICY_OPTS + TRIAL_OPTS + OUTPUT_OPTS + PREDICTION_OPTS)):
     __DEFAULT_OPTS__ = {
         'input_interface_name': 'kinova',
-        'num_input_dofs': 2,
-        'use_finger_mode': False,
+        'input_profile_name': 'joystick_base_3d',
         'direct_teleop_only': False,
         'blend_only': False,
         'fix_magnitude_user_command': False,
@@ -77,20 +76,15 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + P
 
     def get_teleop_handler(self, env, robot):
         return AdaTeleopHandler(
-            env, robot, self.input_interface_name, self.num_input_dofs, self.use_finger_mode)
+            env, robot, self.input_interface_name, get_profile(self.input_profile_name))
 
     def get_goal_predictor(self, goals, rl_policy=None):
         predictors = []
+        if len(goals) == 0:
+            return None
         if self.pick_goal:
             # simulate a random goal
-            prob = np.zeros((len(goals),))
-            if len(goals) > 0: 
-                prob[self.get_random_goal_index()] = 1.
-            # build a "generator" that just returns that goal
-            class RandomPick:
-                def get_distribution(self):
-                    return prob
-            return RandomPick()
+            return FixedGoalPredictor(len(goals), self.get_random_goal_index())
 
         # otherwise make an actual predictor
         if self.predict_policy:
@@ -164,7 +158,7 @@ class AdaHandler(Future):
             data = { 
                 'goals': {g.name: g.pose.tolist() for g in self.goals },
                 'assistance_type': self.assistance_policy.assist_type,
-                'goal_predictor': self.goal_predictor.get_config()
+                'goal_predictor': self.goal_predictor.get_config() if self.goal_predictor is not None else None
             }
             with open(os.path.join(config.log_dir, 'assistance_init.yaml'), 'w') as f:
                 yaml.safe_dump(data, f)
@@ -218,7 +212,10 @@ class AdaHandler(Future):
             # Also, make sure to get the log in the SAME function call
             # so that we are sure the data doesn't change between getting the dist and getting the log
             # (e.g. a new gaze data point comes in on a different thread)
-            goal_distribution, goal_log = self.goal_predictor.get_distribution(get_log=True)
+            if self.goal_predictor is not None:
+                goal_distribution, goal_log = self.goal_predictor.get_distribution(get_log=True)
+            else:
+                goal_distribution, goal_log = [], {}
 
             # if left trigger is being hit (i.e. mode switch), bypass assistance
             if user_input_all is not None and user_input_all.button_changes[0] == 1:
@@ -247,7 +244,8 @@ class AdaHandler(Future):
                 data['timestamp'] = evt.current_real.to_sec()
                 data['robot_dofs'] = _array_to_str(self.robot.GetDOFValues())
                 data['robot_ee_trans'] = _array_to_str(robot_state.ee_trans)
-                data.update({ 'input_{}'.format(k):v for k,v in user_input_all.as_dict().items() })
+                if user_input_all is not None:
+                    data.update({ 'input_{}'.format(k):v for k,v in user_input_all.as_dict().items() })
                 data.update({ 'direct_teleop_{}'.format(k):v for k,v in direct_teleop_action.as_dict().items() })
                 data.update({ 'p_goal_{}'.format(i): _array_to_str(v) for i, v in enumerate(goal_distribution)})
                 data.update({ 'goal_{}'.format(k): v for k, v in goal_log.items() })

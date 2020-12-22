@@ -7,6 +7,21 @@ try:
 except ImportError:
     from scipy.special import logsumexp
 
+class FixedGoalPredictor:
+    def __init__(self, num_goals, idx):
+        self._cfg = { 'type': 'fixed', 'goal_id': idx }
+        self._dist = np.zeros((num_goals,))
+        self._dist[idx] = 1.
+    def get_distribution(self, get_log=False):
+        if get_log:
+            return self._dist, {}
+        else:
+            return self._dist
+    def get_config(self):
+        return self._cfg
+    def update(self):
+        pass
+
 class PolicyBasedGoalPredictor:
   def __init__(self, rl_policy):
     self.rl_policy = rl_policy
