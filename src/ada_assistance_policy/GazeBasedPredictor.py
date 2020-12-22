@@ -131,22 +131,24 @@ class GazeBasedPredictorWrapper:
 def load_gaze_predictor_from_params():
     labeled_gaze_topic = rospy.get_param('~labeled_gaze_topic', '/semantic_gaze_labeler/output')
 
-    # none -> none, [mico_link_x] -> robot, [ee|fork] -> ee, morsels separate
-    default_remap = np.array([0,1,1,1,1,1,1,1,2,2,3,4,5])
-    default_goal_remaps = [ np.arange(6) ] * 3
-    for i, r in enumerate(default_goal_remaps):
-        r[r >= 3] = 4 # remap incorrect labels -> 4
-        r[3+i] = 3 # remap correct -> 3
+    label_remap = np.array(rospy.get_param('~params/label_remap'))
+    goal_remaps = np.array(rospy.get_param('~params/goal_remaps'))
 
-    # get_param doesn't like np.array for lists
-    # but we like the logical indexing above
-    # so unwrap and rewrap in np.array
-    label_remap = np.array(rospy.get_param('~label_remap', default_remap.tolist()))
-    goal_remaps = np.array(rospy.get_param('~goal_remaps', [r.tolist() for r in default_goal_remaps] ))
+    n_components = rospy.get_param('~params/n_components')
+    dt = rospy.get_param('~params/dt')
+    n_max = rospy.get_param('~params/n_max')
 
-    p_prior = np.array( [1, 0, 0] ).reshape((-1, 1))
-    p_trans = np.array( [[1, 0, 0], [0, 1, 0], [0, 0, 1]] )
-    p_emiss = np.array( [[0.4, 0.3, 0.3, 0, 0], [0., 0., 0., 1., 0.], [0., 0., 0., 0., 1.]] ).reshape((-1, 1))
+    startprob = np.array(rospy.get_param('~model/startprob'))
+    transmat = np.array(rospy.get_param('~model/transmat'))
+    emissionprob = np.array(rospy.get_param('~model/emissionprob'))
+
+    processor = SequenceProcessor(label_remap, goal_remaps, dt, n_max)
+    model = hmmlearn.hmm.MultinomialHMM(n_components=n_components)
+    model.startprob_ = startprob
+    model.transmat_ = transmat
+    model.emissionprob_ = emissionprob
+    # make sure the parameters match
+    model._check()
 
     return GazeBasedPredictorWrapper(labeled_gaze_topic, 
         label_remap=label_remap, goal_remaps=goal_remaps,
