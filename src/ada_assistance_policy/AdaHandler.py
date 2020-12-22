@@ -204,6 +204,8 @@ class AdaHandler(Future):
 
             # update the policy
             self.rl_policy.update(robot_state, direct_teleop_action)
+            # update the goal probabilities
+            self.goal_predictor.update()
             # get the goal probabilities
             # must be AFTER rl_policy.update()
             # since if we're using policy-based prediction, we're using the SAME policy object
