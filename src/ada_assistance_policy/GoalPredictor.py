@@ -1,11 +1,15 @@
 import numpy as np
-import IPython
 
 # handle different scipy apis
 try:
     from scipy.misc import logsumexp
 except ImportError:
     from scipy.special import logsumexp
+
+try:
+    import Tkinter as tk
+except ImportError:
+    import tkinter as tk
 
 class FixedGoalPredictor:
     def __init__(self, num_goals, idx):
@@ -56,6 +60,33 @@ class PolicyBasedGoalPredictor:
       return { 'type': self.type }
 
 
+POLICY_PREDICTOR_CONFIG_NAME = "policy_predictor"
+class PolicyPredictorConfigFrame(tk.LabelFrame, object):
+    def __init__(self, parent, initial_config={}):
+        super(PolicyPredictorConfigFrame, self).__init__(parent, text="Policy-based prediction options")
+        initial_config = initial_config.get(POLICY_PREDICTOR_CONFIG_NAME, {})
+
+        self._enabled_var = tk.IntVar()
+        self._enabled_var.set(initial_config.get("enabled", False))
+        self._enabled_check = tk.Checkbutton(self, text="Enabled", variable=self._enabled_var)
+        self._enabled_check.grid(row=0, column=0, stick="nw")
+
+    def get_config(self):
+        return { POLICY_PREDICTOR_CONFIG_NAME: {
+            "enabled": bool(self._enabled_var.get())
+        } }
+
+    def set_state(self, state):
+        self._enabled_check.configure(state=state)
+        
+
+def get_policy_predictor(config, rl_policy):
+    config = config.get(POLICY_PREDICTOR_CONFIG_NAME, {})
+    if config.get("enabled", False):
+        return PolicyBasedGoalPredictor(rl_policy)
+    else:
+        return None
+
 def _array_to_str(arr):
     return np.array2string(arr, precision=6).replace('\n', '')
 
@@ -105,6 +136,7 @@ class MergedGoalPredictor:
             p_cfg['weight'] = float(self.weights[i])
             cfg['p{}'.format(i)] = p_cfg
         return cfg
+
         
 
 
@@ -133,3 +165,4 @@ def clip_probability(log_goal_distribution):
         #set old one
         log_goal_distribution[max_prob_ind] = LOG_MAX_PROB_ANY_GOAL
     return log_goal_distribution
+

@@ -12,8 +12,8 @@ from adapy.futures import Future
 from ada_teleoperation.AdaTeleopHandler import AdaTeleopHandler, Is_Done_Func_Button_Hold
 from ada_teleoperation.UserInputMapper import get_profile
 from ada_teleoperation.RobotState import Action
-from GoalPredictor import PolicyBasedGoalPredictor, MergedGoalPredictor, FixedGoalPredictor
-from GazeBasedPredictor import load_gaze_predictor_from_params
+from GoalPredictor import get_policy_predictor, MergedGoalPredictor, FixedGoalPredictor
+from GazeBasedPredictor import load_gaze_predictor
 from AdaAssistancePolicy import get_assistance_policy
 from UserBot import UserBot
 import AssistancePolicyVisualizationTools as vistools
@@ -31,7 +31,7 @@ POLICY_OPTS = ['direct_teleop_only',
                'blend_only', 'fix_magnitude_user_command', 'transition_function']
 TRIAL_OPTS = ['simulate_user']
 OUTPUT_OPTS = ['log_dir']
-PREDICTION_OPTS = ['predict_policy', 'predict_gaze', 'pick_goal']
+PREDICTION_OPTS = ['prediction_config', 'pick_goal']
 
 class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + POLICY_OPTS + TRIAL_OPTS + OUTPUT_OPTS + PREDICTION_OPTS)):
     __DEFAULT_OPTS__ = {
@@ -43,9 +43,8 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + P
         'transition_function': lambda x, y: x+y,
         'simulate_user': False,
         'log_dir': None,
-        'predict_policy': True,
-        'predict_gaze': False,
-        'pick_goal': False
+        'pick_goal': False,
+        'prediction_config': {}
     }
 
     @classmethod
@@ -79,7 +78,6 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + P
             env, robot, self.input_interface_name, get_profile(self.input_profile_name))
 
     def get_goal_predictor(self, goals, rl_policy=None):
-        predictors = []
         if len(goals) == 0:
             return None
         if self.pick_goal:
@@ -87,13 +85,11 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + P
             return FixedGoalPredictor(len(goals), self.get_random_goal_index())
 
         # otherwise make an actual predictor
-        if self.predict_policy:
-            if rl_policy is None:
-                raise ValueError(
-                    'PolicyBasedGoalPredictor requested but no rl_policy provided')
-            predictors.append(PolicyBasedGoalPredictor(rl_policy))
-        if self.predict_gaze:
-            predictors.append(load_gaze_predictor_from_params())
+        predictors = [
+            get_policy_predictor(self.prediction_config, rl_policy),
+            load_gaze_predictor(self.prediction_config)
+        ]
+        predictors = [p for p in predictors if p is not None]
 
         if len(predictors) > 1:
             return MergedGoalPredictor(predictors)  # todo: weights
