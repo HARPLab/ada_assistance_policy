@@ -55,6 +55,7 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + P
 
         config = cls(**vals)
         config._random_goal_index = None
+        config._goal_predictor = None
 
         return config
 
@@ -77,26 +78,31 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + P
         return AdaTeleopHandler(
             env, robot, self.input_interface_name, get_profile(self.input_profile_name))
 
-    def get_goal_predictor(self, goals, rl_policy=None):
+    def get_goal_predictor(self, goals=None, rl_policy=None):
+        if goals is None:
+            goals = self.goals
         if len(goals) == 0:
             return None
+        if self._goal_predictor:
+            return self._goal_predictor
+
         if self.pick_goal:
             # simulate a random goal
-            return FixedGoalPredictor(len(goals), self.get_random_goal_index())
-
-        # otherwise make an actual predictor
-        predictors = [
-            get_policy_predictor(self.prediction_config, rl_policy),
-            load_gaze_predictor(self.prediction_config)
-        ]
-        predictors = [p for p in predictors if p is not None]
-
-        if len(predictors) > 1:
-            return MergedGoalPredictor(predictors)  # todo: weights
-        elif len(predictors) == 1:
-            return predictors[0]
+            self._goal_predictor = FixedGoalPredictor(len(goals), self.get_random_goal_index())
         else:
-            raise RuntimeError("no prediction strategy specified!")
+            # otherwise make an actual predictor
+            predictors = [
+                get_policy_predictor(self.prediction_config, rl_policy),
+                load_gaze_predictor(self.prediction_config)
+            ]
+            predictors = [p for p in predictors if p is not None]
+
+            if len(predictors) > 1:
+                self._goal_predictor = MergedGoalPredictor(predictors)  # todo: weights
+            elif len(predictors) == 1:
+                self._goal_predictor = predictors[0]
+        
+        return self._goal_predictor
 
     def get_rl_policy(self, goals):
         rl_policy = AssistancePolicy(goals)
@@ -109,8 +115,8 @@ class AdaHandlerConfig(namedtuple('AdaHandlerConfig', GOAL_OPTS + INPUT_OPTS + P
         return rl_policy
 
     def get_assistance_policy(self):
-        if not self.goals and not self.direct_teleop_only:
-            raise ValueError('Requested assistance but no goals detected!')
+        if not self.direct_teleop_only and not self.get_goal_predictor():
+            raise ValueError('Requested assistance but no predictors available!')
         return get_assistance_policy(direct_teleop_only=self.direct_teleop_only,
                                      blend_only=self.blend_only, fix_magnitude_user_command=self.fix_magnitude_user_command,
                                      transition_function=self.transition_function)
@@ -200,8 +206,7 @@ class AdaHandler(Future):
 
             # update the policy
             self.rl_policy.update(robot_state, direct_teleop_action)
-            # update the goal probabilities
-            self.goal_predictor.update()
+            
             # get the goal probabilities
             # must be AFTER rl_policy.update()
             # since if we're using policy-based prediction, we're using the SAME policy object
@@ -211,6 +216,7 @@ class AdaHandler(Future):
             # so that we are sure the data doesn't change between getting the dist and getting the log
             # (e.g. a new gaze data point comes in on a different thread)
             if self.goal_predictor is not None:
+                self.goal_predictor.update()
                 goal_distribution, goal_log = self.goal_predictor.get_distribution(get_log=True)
             else:
                 goal_distribution, goal_log = [], {}
