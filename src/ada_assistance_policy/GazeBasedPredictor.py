@@ -12,8 +12,10 @@ import threading
 
 try:
     import Tkinter as tk
+    import tkMessageBox as messagebox 
 except ImportError:
     import tkinter as tk
+    import tk.messagebox as messagebox
 import tkFileDialog
 import yaml
 
@@ -178,7 +180,8 @@ class GazeBasedPredictorConfigFrame(tk.LabelFrame, object):
             try:
                 _load_gaze_predictor_model(fn)
             except Exception as e:
-                tk.messagebox.showerror("Error loading model", "Could not load model {}: {}".format(fn, str(e)))
+                import traceback; traceback.print_exc()
+                messagebox.showerror("Error loading model", "Could not load model {}: {}".format(fn, str(e)))
             else:
                 self._model_loc_var.set(fn)
 

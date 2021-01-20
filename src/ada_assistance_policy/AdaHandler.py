@@ -146,9 +146,9 @@ class AdaHandler(Future):
         self.user_input = config.get_user_input(self.ada_teleop,
                                                   self.robot, self.goals)
         self.rl_policy = config.get_rl_policy(self.goals)
-        self.assistance_policy = config.get_assistance_policy()
         self.goal_predictor = config.get_goal_predictor(
             self.goals, self.rl_policy)
+        self.assistance_policy = config.get_assistance_policy()
 
         # logging variables
         self.loggers = loggers
