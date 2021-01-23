@@ -268,7 +268,8 @@ class AdaHandler(Future):
                 if self._cancel_requested:
                     self.set_cancelled()
                 else:
-                    self.set_result(None)
+                    self.set_result(self.goals)
+                    
         except Exception as e:
             traceback.print_exc()
             # make sure to clean up
